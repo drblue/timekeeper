@@ -56,11 +56,29 @@ This document records confirmed requirements during the interview. It is not the
 - Main screen defaults to the current week and all invoice statuses. Show a prominent timer, filtered hours and billable totals, and entries newest first grouped by day. Date shortcuts: Today, This week, This month, Previous month, Custom range.
 - Projects have an overridable billability default inherited by entries. New projects and direct-client work default to billable; work without a client/project defaults to non-billable. Make billability visible during entry.
 
+## Confirmed interview decisions — round 4
+
+- Missing description or billing information saves stopped work as incomplete. Completed entries require positive duration; end times before start times are rejected. Flag running timers after 12 hours without stopping them.
+- Bulk invoice marking supports a shared optional invoice reference and invoice date, with marking time recorded separately. Reference/date corrections do not unlock work. Additionally support an explicit invoice number so invoices can be found in external bookkeeping software.
+- Bulk actions affect explicitly selected entries. Offer explicit selection of all matches across pages. Show selected count, hours, and amount before invoice marking. PDF export never marks entries invoiced.
+- Keep entry change history with prior values and timestamps for edits, rate changes, invoice marking/unmarking, splitting, deletion, and restoration, available in entry details.
+- Clients need name, default hourly rate, and optional notes. Projects need name, optional client, rate settings, billability, and optional notes. Warn about duplicate client names and project names within a client. Addresses, tax numbers, contacts, and payment terms are outside initial scope.
+- Renaming clients/projects updates app displays and newly generated reports while preserving associations and recorded rates. Downloaded PDFs remain unchanged; regeneration uses current data.
+- Long reports split daily bar charts into monthly panels, retaining one overall project pie. Pie labels show percentages; its right-hand legend lists project names, hours, and percentages. Filters combine using AND and incompatible client/project selections are clearly shown.
+- Separate backups should be encrypted and copied outside the application host. Verify restoration before relying on the app. The destination is explicitly deferred.
+- Support ARM64 Raspberry Pi and x86-64 VPS deployment through Docker Compose, persistent data outside replaceable containers, configurable storage/domain settings, HTTPS through a reverse proxy, and a private database. Actual domain and remote-access setup are deferred until deployment.
+- Include browser installation as a standalone window/home-screen app where supported, retaining online-only behavior. Native desktop/iOS applications remain future work.
+- Include description search. Expenses, budgets, recurring entries, tags, and external integrations remain outside initial scope, except the explicitly requested Clockify import.
+- Support importing Clockify CSV exports. Reimporting previously imported entries must not create duplicates. A user-provided 2025 export is the sample input; mapping and identity behavior are being investigated before specification.
+
 ## Remaining discovery areas
 
-- Incomplete-entry validation and long-timer threshold.
-- Invoice references, history, and bulk-action boundaries.
-- Project/client naming and settings needed by reports.
-- Longer report ranges and filter consistency.
-- Backup destination and deployment access.
-- Installability, initial data, and scope confirmation.
+- Clockify field mapping, identity, repeated imports, and correction handling.
+- Invoice number semantics and entry eligibility.
+- Import preview, recovery, and unsupported data.
+- Final scope and shared-understanding confirmation.
+
+## Explicitly deferred deployment choices
+
+- Separate backup destination.
+- Domain and remote-access setup.

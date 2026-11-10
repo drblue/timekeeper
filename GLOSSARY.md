@@ -47,3 +47,9 @@ A saved record of work that lacks information required for completion. It is exc
 
 **Invoice reference**:
 An optional identifier linking invoiced work to an invoice created outside Timekeeper.
+
+**Invoice number**:
+The identifier assigned to an invoice in external bookkeeping software, recorded to make that invoice easy to locate.
+
+**Clockify import**:
+The transfer of work records from a Clockify CSV export into Timekeeper without duplicating previously imported entries.
