@@ -15,3 +15,7 @@ The project is currently in design. Application code and deployment are not impl
 ## Selected stack
 
 React/Vite with TanStack Router and Query; Node.js/Fastify; Prisma 7 with SQLite initially; Docker Compose for ARM64 Raspberry Pi and x86-64 VPS hosting. PostgreSQL and MariaDB transfer paths must be verified. React PDF is provisional pending report-layout and resource evaluation. Native desktop/iOS clients remain future work against the same API.
+
+## Agent workflow
+
+[AGENTS.md](AGENTS.md) routes engineering skills to the GitHub tracker, default triage labels, and domain documentation. [Implementation coordination](docs/agents/implementation.md) defines focused agent assignments, model selection, and independent validation/review. Configuration under `docs/agents/` can be edited directly; rerun setup only when changing tracker or restarting configuration.
