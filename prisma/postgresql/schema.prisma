@@ -1,0 +1,37 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../generated/postgresql"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model FixtureProject {
+  id      String             @id @db.VarChar(36)
+  name    String
+  entries FixtureTimeEntry[]
+}
+
+model FixtureTimeEntry {
+  id                     String                      @id @db.VarChar(36)
+  projectId              String                      @db.VarChar(36)
+  project                FixtureProject              @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  description            String
+  effectiveHourlyRateOre BigInt?
+  billableAmountOre      BigInt
+  startedAt              DateTime?                   @db.Timestamptz(0)
+  workDate               String?                     @db.VarChar(10)
+  allocations            FixtureEntryDayAllocation[]
+}
+
+model FixtureEntryDayAllocation {
+  entryId   String           @db.VarChar(36)
+  entry     FixtureTimeEntry @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  localDate String           @db.VarChar(10)
+  seconds   Int
+
+  @@id([entryId, localDate])
+}

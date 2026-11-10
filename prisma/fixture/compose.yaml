@@ -1,0 +1,28 @@
+services:
+  postgresql:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_USER: fixture
+      POSTGRES_PASSWORD: fixture
+      POSTGRES_DB: portability_fixture
+    ports:
+      - '127.0.0.1::5432'
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-h', '127.0.0.1', '-U', 'fixture', '-d', 'portability_fixture']
+      interval: 2s
+      timeout: 5s
+      retries: 40
+  mariadb:
+    image: mariadb:11.8.8
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: 'yes'
+      MARIADB_USER: fixture
+      MARIADB_PASSWORD: fixture
+      MARIADB_DATABASE: portability_fixture
+    ports:
+      - '127.0.0.1::3306'
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 2s
+      timeout: 5s
+      retries: 40

@@ -1,0 +1,37 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../generated/sqlite"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model FixtureProject {
+  id      String             @id
+  name    String
+  entries FixtureTimeEntry[]
+}
+
+model FixtureTimeEntry {
+  id                     String                      @id
+  projectId              String
+  project                FixtureProject              @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  description            String
+  effectiveHourlyRateOre BigInt?
+  billableAmountOre      BigInt
+  startedAt              DateTime?
+  workDate               String?
+  allocations            FixtureEntryDayAllocation[]
+}
+
+model FixtureEntryDayAllocation {
+  entryId   String
+  entry     FixtureTimeEntry @relation(fields: [entryId], references: [id], onDelete: Restrict)
+  localDate String
+  seconds   Int
+
+  @@id([entryId, localDate])
+}

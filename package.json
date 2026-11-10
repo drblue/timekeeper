@@ -20,11 +20,18 @@
 		"typecheck": "npm run build -w @timekeeper/contracts && npm run typecheck --workspaces --if-present && tsc -p tsconfig.tests.json",
 		"test": "npm run build -w @timekeeper/contracts && vitest run apps/server",
 		"test:e2e": "npm run build && playwright test",
-		"check": "npm run typecheck && npm test && npm run test:e2e"
+		"check": "npm run typecheck && npm test && npm run test:e2e",
+		"test:persistence": "node prisma/fixture/run.ts",
+		"typecheck:persistence": "node prisma/fixture/run.ts --typecheck"
 	},
 	"devDependencies": {
 		"@playwright/test": "1.65.0",
+		"@prisma/adapter-better-sqlite3": "7.10.1",
+		"@prisma/adapter-mariadb": "7.10.1",
+		"@prisma/adapter-pg": "7.10.1",
+		"@prisma/client": "7.10.1",
 		"@types/node": "24.19.2",
+		"prisma": "7.10.1",
 		"typescript": "7.0.2",
 		"vitest": "5.1.0"
 	}

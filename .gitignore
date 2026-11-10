@@ -3,3 +3,5 @@ dist/
 *.tsbuildinfo
 playwright-report/
 test-results/
+
+prisma/generated/
