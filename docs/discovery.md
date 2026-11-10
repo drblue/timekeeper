@@ -112,3 +112,7 @@ All six interview rounds have been answered. The user confirmed the consolidated
 ## Technical design follow-up — 2026-11-10
 
 The user approved Prisma instead of the initially proposed Drizzle because cross-database migration is required. SQLite remains the initial database; PostgreSQL and MariaDB are explicit transfer targets rather than initial production services. The technical design records provider-specific migrations and data-transfer verification, independent HTTP API/domain boundaries for future clients, and an early report-renderer evaluation. No dependencies or application code were added during this design task.
+
+## Ticket publication priority clarification
+
+The user approved the 30-ticket implementation breakdown and publication to GitHub with native blocking dependencies and ready-for-agent labels. PostgreSQL and MariaDB transfer tickets are very low priority and may never be needed. Keep database portability in the design and early checks; remove full transfer rehearsals from the initial-release gate. The initial release requires A01–A22, with A23–A24 conditional on future migration work.

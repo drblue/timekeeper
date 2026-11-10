@@ -1,6 +1,6 @@
 # Timekeeper — Product Specification
 
-Version: 1.1
+Version: 1.2
 Date: 2026-11-10
 Status: Initial specification based on the user-confirmed discovery scope.
 
@@ -10,7 +10,7 @@ Timekeeper lets one person record work, understand time spent by client and proj
 
 This document consolidates the approved scope in [discovery.md](discovery.md). It is the implementation-facing product specification; discovery retains the interview history. [GLOSSARY.md](../GLOSSARY.md) defines canonical terms. Requirements below are required for the first release unless explicitly deferred. Acceptance scenarios illustrate required behavior and are not an exhaustive test suite.
 
-The selected stack is React/Vite, TanStack Router/Query, Node.js/Fastify, and Prisma 7 with SQLite initially. PostgreSQL and MariaDB are required migration targets. React PDF remains provisional until report layout and resource validation. The [technical design](technical-design.md) defines architecture and implementation decisions. Use TypeScript, ESModules, and tabs; production dependency additions follow the project's working agreements.
+The selected stack is React/Vite, TanStack Router/Query, Node.js/Fastify, and Prisma 7 with SQLite initially. PostgreSQL and MariaDB remain architectural migration targets; implementing their transfer tooling is optional, very-low-priority future work, not an initial-release requirement. React PDF remains provisional until report layout and resource validation. The [technical design](technical-design.md) defines architecture and implementation decisions. Use TypeScript, ESModules, and tabs; production dependency additions follow the project's working agreements.
 
 ## 2. Product boundaries
 
@@ -22,7 +22,7 @@ The selected stack is React/Vite, TanStack Router/Query, Node.js/Fastify, and Pr
 - Filtered reporting, PDF generation, complete data export, and entry CSV export.
 - Clockify CSV import with preview, repeat-import protection, conflict resolution, and guarded undo.
 - Docker Compose hosting on ARM64 Raspberry Pi 4 and x86-64 Hetzner VPS; backup, restoration, and migration procedures.
-- Initial SQLite persistence with verified transfer paths to PostgreSQL and MariaDB, preserving historical and import-identity data.
+- Initial SQLite persistence designed for later PostgreSQL or MariaDB migration, preserving historical and import-identity data. Full transfer tooling/rehearsals are optional future work.
 
 ### Excluded
 
@@ -232,7 +232,7 @@ Provide a complete data export and filtered entry CSV export. Complete export mu
 
 ### OPS-04 — Database migration targets
 
-Support a planned transfer from SQLite to PostgreSQL or MariaDB with provider-specific schemas/migrations and preserved IDs, relationships, amounts, daily allocations, invoice metadata, history, import identities/tombstones, and undo information. Validate data and behavior against real target databases before cutover. Preserve a rollback source and document the boundary after which new target writes require reconciliation. Changing the database URL alone is not a supported migration procedure.
+When a future database migration is prioritized, support a planned transfer from SQLite to PostgreSQL or MariaDB with provider-specific schemas/migrations and preserved IDs, relationships, amounts, daily allocations, invoice metadata, history, import identities/tombstones, and undo information. Validate data and behavior against real target databases before cutover. Preserve a rollback source and document the boundary after which new target writes require reconciliation. Changing the database URL alone is not a supported migration procedure. Provider-neutral design and early compatibility checks remain in scope; full transfer implementation and A23–A24 are optional and do not gate the initial SQLite release.
 
 ## 12. Acceptance scenarios
 
@@ -260,8 +260,8 @@ Support a planned transfer from SQLite to PostgreSQL or MariaDB with provider-sp
 | A20 | Undo an eligible import: created entries go to trash, unchanged updates revert, clients/projects remain, and explicit reimport is possible. |
 | A21 | Open a stale edit after another device changes it: show conflict/refresh instead of overwriting newer data. |
 | A22 | Restore a backup on a supported host: entries, rates, invoice metadata, history, settings, and repeat-import protection survive. |
-| A23 | Transfer a populated SQLite fixture to PostgreSQL: IDs, relationships, seconds, amounts, allocations, history, invoice states, and import behavior match. |
-| A24 | Repeat that transfer to MariaDB and verify the same invariants, including Unicode/case-sensitive grouping and transactional conflict behavior. |
+| A23 | **Optional future migration:** Transfer a populated SQLite fixture to PostgreSQL: IDs, relationships, seconds, amounts, allocations, history, invoice states, and import behavior match. |
+| A24 | **Optional future migration:** Repeat that transfer to MariaDB and verify the same invariants, including Unicode/case-sensitive grouping and transactional conflict behavior. |
 
 Use synthetic or sanitized fixtures for automated tests; do not commit the user's raw Clockify export. Verify PDF layout visually with empty, dense, long-description, multi-page, and long-range reports. Verify the primary workflows on desktop and phone layouts. Validate both target deployment architectures before declaring hosting support complete.
 

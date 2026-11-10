@@ -14,7 +14,7 @@ This design implements [the product specification](specification.md). The produc
 | Routing and server state | TanStack Router and TanStack Query | Selected |
 | API | Node.js supported LTS and Fastify | Selected |
 | Persistence | Prisma 7 with SQLite initially | Selected; exact compatible releases pinned during setup |
-| Migration targets | PostgreSQL and MariaDB | Required portability targets; not initial production services |
+| Migration targets | PostgreSQL and MariaDB | Preserve portability; actual transfer tools/rehearsals are optional, very-low-priority future work |
 | PDF renderer | Server-side React PDF (`@react-pdf/renderer`) | Provisional until the layout and resource gate in section 9 passes |
 | Tests | Vitest and Playwright | Selected |
 | Hosting | Docker Compose, ARM64 and x86-64, HTTPS reverse proxy | Selected; proxy/domain details deferred |
@@ -243,6 +243,8 @@ Restore drills validate entries, allocations, history, invoice metadata, setting
 
 ## 11. PostgreSQL and MariaDB migration paths
 
+Priority clarification: preserve these design constraints and early real-engine compatibility checks now. Full transfer implementation/rehearsals may never be needed and do not block the initial SQLite release. The procedure below applies when a target migration is explicitly prioritized.
+
 Portability means a planned, tested transfer; it is not a runtime switch of an existing database file. Prisma migrations are provider-specific and do not transfer data between engines. Keep separate histories and target baselines; never replay SQLite SQL against PostgreSQL or MariaDB. [Prisma migration limitations](https://www.prisma.io/docs/orm/v7/prisma-migrate/understanding-prisma-migrate/limitations-and-known-issues).
 
 Maintain equivalent logical models with explicit provider type mappings. Select the generated client/adapter at build time for a deployment target. The initial production image is SQLite; target builds are exercised in tests. Avoid importing one provider's generated client throughout service code. Do not create a schema-generation framework until actual duplication warrants it.
@@ -272,9 +274,9 @@ Moving SQLite from Pi to VPS is a separate, simpler operation: restore the consi
 | 3. Vertical application | Login, clients/projects, manual entry, durable timer, list filtering/totals, conflicts/history/trash |
 | 4. Billing and reports | Bulk preview/commit, invoice safeguards, shared report data, accepted renderer integration, bilingual layout checks |
 | 5. Clockify | Preview, mappings, duplicate multiplicity, correction aliases, atomic commit/undo and fixtures |
-| 6. Operations | Export, backup/restore drill, both database transfer rehearsals, Pi deployment verification and responsive browser checks |
+| 6. Operations | Export, backup/restore drill, Pi deployment verification and responsive browser checks; full database transfer rehearsals deferred unless prioritized |
 
-Vitest covers pure domain behavior and service/persistence contracts. Playwright covers desktop/mobile flows and visible failure/recovery states. Property tests or equivalent exhaustive boundary cases check that allocations and splits conserve seconds and öre. Relate completed tests to specification A01–A22 and add transfer checks for A23–A24. Do not consider documentation or fixture execution proof of hardware performance.
+Vitest covers pure domain behavior and service/persistence contracts. Playwright covers desktop/mobile flows and visible failure/recovery states. Property tests or equivalent exhaustive boundary cases check that allocations and splits conserve seconds and öre. Relate completed tests to specification A01–A22 and add transfer checks for A23–A24 only when the optional migration work is prioritized. Do not consider documentation or fixture execution proof of hardware performance.
 
 ## 13. Remaining implementation and deployment choices
 
