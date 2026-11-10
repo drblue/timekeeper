@@ -14,9 +14,11 @@ import { fixtureNames } from './fixtures.js';
 const exec = promisify(execFile);
 const workerScript = fileURLToPath(new URL('./comparison-worker.js', import.meta.url));
 const workerTimeoutMs = 180_000;
+const cancellationTimeoutMs = 10_000;
 const sampleIntervalMs = 100;
 const probeIntervalMs = 50;
 const probeTimeoutMs = 1000;
+const cancellation = new AbortController();
 
 interface ProcessInfo {
 	readonly pid: number;
@@ -80,6 +82,7 @@ async function stopWorker(pid: number) {
 }
 
 async function worker(renderer: RendererName, fixture: string, output: string, measureMemory = false) {
+	cancellation.signal.throwIfAborted();
 	const started = performance.now();
 	const child = spawn(process.execPath, [workerScript, renderer, fixture, output], {
 		detached: true,
@@ -95,16 +98,24 @@ async function worker(renderer: RendererName, fixture: string, output: string, m
 		throw new Error('Failed to start a comparison worker.');
 	}
 
-	let timedOut = false;
-	const timeout = setTimeout(() => {
-		timedOut = true;
-		void stopWorker(pid).catch((error: unknown) => {
+	let stopping: Promise<void> | undefined;
+	const stop = () => {
+		if (child.exitCode !== null || child.signalCode !== null) return;
+		memoryController.abort();
+		stopping ??= stopWorker(pid).catch((error: unknown) => {
 			console.error(error);
 			child.kill('SIGKILL');
 		});
+	};
+	cancellation.signal.addEventListener('abort', stop, { once: true });
+	let timedOut = false;
+	const timeout = setTimeout(() => {
+		timedOut = true;
+		stop();
 	}, workerTimeoutMs);
 	const result = exited.then(([code, signal]) => {
 		const wallMs = performance.now() - started;
+		cancellation.signal.throwIfAborted();
 		if (timedOut) throw new Error(`${renderer} exceeded ${workerTimeoutMs} ms rendering ${fixture}.`);
 		if (code !== 0) throw new Error(`${renderer} failed rendering ${fixture} (${signal ?? code}).`);
 		const metrics = JSON.parse(stdout) as WorkerMetrics;
@@ -118,8 +129,10 @@ async function worker(renderer: RendererName, fixture: string, output: string, m
 		const [metrics, samples] = await Promise.all([result, memory]);
 		return { ...metrics, ...samples };
 	} finally {
-		if (child.exitCode === null && child.signalCode === null) {
-			await stopWorker(pid);
+		cancellation.signal.removeEventListener('abort', stop);
+		stop();
+		if (stopping) {
+			await stopping;
 			await exited;
 		}
 	}
@@ -203,7 +216,8 @@ async function benchmark(fixture = 'detailed-en', repetitionsText = '3', outputP
 		const address = await api.listen({ host: '127.0.0.1', port: 0 });
 		const health = new URL(healthPath, address).href;
 		await checkHealth(health);
-		const baseline = await probe(health, sleep(2000));
+		const baseline = await probe(health, sleep(2000, undefined, { signal: cancellation.signal }));
+		cancellation.signal.throwIfAborted();
 		const samples = [];
 		for (let round = 0; round < repetitions; round++) {
 			for (let offset = 0; offset < renderers.length; offset++) {
@@ -235,6 +249,7 @@ async function benchmark(fixture = 'detailed-en', repetitionsText = '3', outputP
 			samples,
 		};
 		const json = JSON.stringify(result, null, '\t') + '\n';
+		cancellation.signal.throwIfAborted();
 		if (outputPath) {
 			const path = resolve(outputPath);
 			await mkdir(dirname(path), { recursive: true });
@@ -254,6 +269,27 @@ async function benchmark(fixture = 'detailed-en', repetitionsText = '3', outputP
 }
 
 const [command, ...args] = process.argv.slice(2);
-if (command === 'render') await render(...args);
-else if (command === 'benchmark') await benchmark(...args);
-else throw new Error('Choose render or benchmark.');
+let cancellationTimer: NodeJS.Timeout | undefined;
+function interrupt(signal: NodeJS.Signals) {
+	if (cancellation.signal.aborted) return;
+	const exitCode = signal === 'SIGINT' ? 130 : 143;
+	process.exitCode = exitCode;
+	cancellationTimer = setTimeout(() => process.exit(exitCode), cancellationTimeoutMs).unref();
+	cancellation.abort(new Error(`Comparison interrupted by ${signal}.`));
+}
+
+process.on('SIGINT', interrupt);
+process.on('SIGTERM', interrupt);
+try {
+	if (command === 'render') await render(...args);
+	else if (command === 'benchmark') await benchmark(...args);
+	else throw new Error('Choose render or benchmark.');
+	cancellation.signal.throwIfAborted();
+} catch (error) {
+	if (error !== cancellation.signal.reason || !cancellation.signal.aborted) throw error;
+	console.error(String(error));
+} finally {
+	clearTimeout(cancellationTimer);
+	process.off('SIGINT', interrupt);
+	process.off('SIGTERM', interrupt);
+}
