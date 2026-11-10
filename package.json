@@ -26,7 +26,9 @@
 		"typecheck:pdf": "tsc -p prototype/pdf/tsconfig.json --noEmit",
 		"build:pdf": "tsc -p prototype/pdf/tsconfig.json",
 		"fixture:pdf": "npm run build:pdf && node prototype/pdf/dist/render-fixture.js",
-		"benchmark:pdf": "npm run build:pdf && npm run build -w @timekeeper/contracts && npm run build -w @timekeeper/server && node prototype/pdf/dist/benchmark.js"
+		"benchmark:pdf": "npm run build:pdf && npm run build -w @timekeeper/contracts && npm run build -w @timekeeper/server && node prototype/pdf/dist/benchmark.js",
+		"pdf:comparison:render": "npm run build -w @timekeeper/contracts && npm run build:pdf && node prototype/pdf/dist/comparison.js render",
+		"pdf:comparison:benchmark": "npm run build -w @timekeeper/contracts && npm run build:pdf && npm run build -w @timekeeper/server && node prototype/pdf/dist/comparison.js benchmark"
 	},
 	"devDependencies": {
 		"@playwright/test": "1.65.0",
@@ -36,7 +38,9 @@
 		"@prisma/client": "7.10.1",
 		"@react-pdf/renderer": "4.9.0",
 		"@types/node": "24.19.2",
+		"@types/pdfmake": "0.3.0",
 		"@types/react": "19.3.0",
+		"pdfmake": "0.3.14",
 		"prisma": "7.10.1",
 		"react": "19.3.1",
 		"typescript": "7.0.2",
