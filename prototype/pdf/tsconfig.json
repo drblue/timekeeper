@@ -1,0 +1,11 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"module": "NodeNext",
+		"jsx": "react-jsx",
+		"lib": ["ES2024"],
+		"outDir": "dist",
+		"types": ["node"]
+	},
+	"include": ["*.ts", "*.tsx"]
+}
