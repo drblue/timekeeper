@@ -269,7 +269,7 @@ Use synthetic or sanitized fixtures for automated tests; do not commit the user'
 
 The following choices are intentionally left to technical design or deployment planning:
 
-- Exact compatible dependency versions and remaining authentication/schema/date-time helper choices described in the technical design.
+- Remaining exact dependency versions and schema/date-time helper choices described in the technical design.
 - Separate encrypted backup destination and key management/recovery procedure.
 - Production domain, reverse-proxy configuration, and remote-access arrangement.
 

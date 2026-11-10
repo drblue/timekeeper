@@ -2,7 +2,7 @@
 
 A single-user time-tracking application for recording work, tracking billable amounts and external invoicing, importing Clockify data, and exporting PDF time reports.
 
-The initial application runs the browser interface and its liveness API from one Fastify process. Time tracking, persistence, account access, browser installation, and deployment are planned in the product specification.
+One Fastify process serves the browser interface and API. The operator provisions the Timekeeper account in a local SQLite database.
 
 ## Run locally
 
@@ -11,17 +11,20 @@ Use Node.js 24.19.0 and npm 11.17.0. If you use nvm, run `nvm install` and `nvm 
 ```sh
 npm ci
 npm run build
+npm run db:migrate
+npm run account -- provision owner@example.com
 npm start
 ```
 
-Open [Timekeeper](http://127.0.0.1:3000) and select **Check connection** to repeat the same-origin API request. The production process serves the compiled web files from `apps/web/dist`. Set `HOST` and `PORT` to override the defaults of `127.0.0.1` and `3000`.
+Open [Timekeeper](http://127.0.0.1:3000) and sign in with the provisioned email and password. The server serves the compiled web files from `apps/web/dist`. Set `HOST` and `PORT` to override the defaults of `127.0.0.1` and `3000`. See the [account operator guide](docs/account-access.md) for password recovery, storage, and HTTPS settings.
 
 For development, run `npm run dev:server` and `npm run dev:web` in separate terminals. Open [the Vite development server](http://127.0.0.1:5173). Vite forwards API requests to the local Fastify process. If you change `PORT`, use the same value in both terminals. Restart the development server after editing the shared contracts to rebuild that workspace.
 
 ## API
 
-- `GET /api/v1/health` returns `200` with `{"status":"ok"}` when the API process can serve requests. It accepts no query parameters and has no database or account dependencies.
+- `GET /api/v1/health` returns `200` with `{"status":"ok"}` when the API process can serve requests. It accepts no query parameters and performs no database query.
 - `GET /api/v1/openapi.json` serves the OpenAPI description generated from the Fastify route schemas.
+- `GET /api/v1/auth/session` reports the current browser session and issues a CSRF token for account actions. Private API routes such as `GET /api/v1/account` require a valid session.
 
 TypeBox defines shared JSON Schema and TypeScript types in `packages/contracts`. Fastify validates incoming requests and validates schema-defined responses before sending JSON. Structured errors include `code`, `message`, and a server-generated `requestId`, plus `fieldErrors` for request validation failures.
 
@@ -32,7 +35,7 @@ npx playwright install chromium --only-shell
 npm run check
 ```
 
-Run `npm run typecheck`, `npm test`, or `npm run test:e2e` individually. The browser tests build and start the production service and verify the connection and recovery flow in desktop and phone viewports. The smoke test needs local port `4317` available.
+Run `npm run typecheck`, `npm test`, or `npm run test:e2e` individually. The browser tests build and start the service with a disposable account and verify connection and account access in desktop and phone viewports.
 
 Run `npm run test:persistence` with local Docker Compose to check the persisted-data fixture against SQLite, PostgreSQL, and MariaDB. Run `npm run test:persistence -- sqlite` for SQLite alone without Docker, or `npm run typecheck:persistence` to check the fixture types. The [portability handoff](docs/hand-offs/issue-2-implementation.md) records the tested versions, database isolation, and architecture checks.
 

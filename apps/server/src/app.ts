@@ -8,26 +8,36 @@ import { TypeCompiler } from '@sinclair/typebox/compiler';
 import { ApiErrorResponse, healthPath, HealthQuery, HealthResponse } from '@timekeeper/contracts';
 import Fastify from 'fastify';
 import type { FastifyError } from 'fastify';
+import { canonicalAddress } from './auth/config.ts';
+import { registerAccountAccess } from './auth/routes.ts';
+import type { AuthOptions } from './auth/routes.ts';
 
 interface AppOptions {
 	webRoot?: string;
 	logger?: boolean;
+	auth?: AuthOptions;
 }
 
-export async function createApp({ webRoot, logger = false }: AppOptions = {}) {
+export async function createApp({ webRoot, logger = false, auth }: AppOptions = {}) {
 	if (webRoot) {
 		await access(resolve(webRoot, 'index.html'));
 	}
 
 	const app = Fastify({
-		logger,
+		logger: logger ? {
+			serializers: { req: (request) => ({ method: request.method }) },
+			redact: { paths: ['req.headers', 'req.body', 'res.headers'], remove: true },
+		} : false,
 		requestIdHeader: false,
 		genReqId: () => randomUUID(),
+		trustProxy: (address, hop) => hop === 0 &&
+			(auth?.config.trustedProxyAddresses.has(canonicalAddress(address)) ?? false),
 		frameworkErrors(error, request, reply) {
 			reply.server.errorHandler(error, request, reply);
 		},
 		ajv: {
 			customOptions: {
+				coerceTypes: false,
 				removeAdditional: false,
 			},
 		},
@@ -111,7 +121,10 @@ export async function createApp({ webRoot, logger = false }: AppOptions = {}) {
 		},
 	});
 
+	await registerAccountAccess(app, auth);
+
 	app.get<{ Reply: HealthResponse | ApiErrorResponse }>(healthPath, {
+		config: { publicAccess: true },
 		schema: {
 			operationId: 'getLiveness',
 			summary: 'Check API process liveness',
@@ -128,23 +141,31 @@ export async function createApp({ webRoot, logger = false }: AppOptions = {}) {
 		return { status: 'ok' };
 	});
 
-	app.get('/api/v1/openapi.json', { schema: { hide: true } }, async (_request, reply) => {
+	app.get('/api/v1/openapi.json', { config: { publicAccess: true }, schema: { hide: true } }, async (_request, reply) => {
 		reply.header('Cache-Control', 'no-cache');
 		return app.swagger();
 	});
 
 	if (webRoot) {
-		await app.register(fastifyStatic, {
-			root: resolve(webRoot, 'assets'),
-			prefix: '/assets/',
-			dotfiles: 'ignore',
-			index: false,
-			maxAge: '1y',
-			immutable: true,
-		});
+		await app.register(async (web) => {
+			web.addHook('onRoute', (route) => {
+				route.config = { ...route.config, publicAccess: true };
+			});
 
-		app.get('/', { schema: { hide: true } }, (_request, reply) => {
-			return reply.header('Cache-Control', 'no-cache').sendFile('index.html', webRoot, { cacheControl: false });
+			await web.register(fastifyStatic, {
+				root: resolve(webRoot, 'assets'),
+				prefix: '/assets/',
+				dotfiles: 'ignore',
+				index: false,
+				maxAge: '1y',
+				immutable: true,
+			});
+
+			for (const path of ['/', '/login', '/password']) {
+				web.get(path, { schema: { hide: true } }, (_request, reply) => {
+					return reply.header('Cache-Control', 'no-cache').sendFile('index.html', webRoot, { cacheControl: false });
+				});
+			}
 		});
 	}
 

@@ -5,5 +5,10 @@ playwright-report/
 test-results/
 
 prisma/generated/
+apps/server/src/generated/
+.env
+.env.local
+*.sqlite
+*.sqlite-*
 
 /output/pdf/

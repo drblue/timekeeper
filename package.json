@@ -13,12 +13,12 @@
 		"packages/*"
 	],
 	"scripts": {
-		"dev:server": "npm run build -w @timekeeper/contracts && node --watch apps/server/src/index.ts --api-only",
+		"dev:server": "npm run build -w @timekeeper/contracts && npm run db:generate && node --env-file-if-exists=.env --watch apps/server/src/index.ts --api-only",
 		"dev:web": "npm run dev -w @timekeeper/web",
 		"build": "npm run build -w @timekeeper/contracts && npm run build -w @timekeeper/server && npm run build -w @timekeeper/web",
-		"start": "node apps/server/dist/index.js",
+		"start": "node --env-file-if-exists=.env apps/server/dist/index.js",
 		"typecheck": "npm run build -w @timekeeper/contracts && npm run typecheck --workspaces --if-present && tsc -p tsconfig.tests.json",
-		"test": "npm run build -w @timekeeper/contracts && vitest run apps/server",
+		"test": "npm run build -w @timekeeper/contracts && npm run db:generate && vitest run apps/server",
 		"test:e2e": "npm run build && playwright test",
 		"check": "npm run typecheck && npm test && npm run test:e2e",
 		"test:persistence": "node prisma/fixture/run.ts",
@@ -28,7 +28,10 @@
 		"fixture:pdf": "npm run build:pdf && node prototype/pdf/dist/render-fixture.js",
 		"benchmark:pdf": "npm run build:pdf && npm run build -w @timekeeper/contracts && npm run build -w @timekeeper/server && node prototype/pdf/dist/benchmark.js",
 		"pdf:comparison:render": "npm run build -w @timekeeper/contracts && npm run build:pdf && node prototype/pdf/dist/comparison.js render",
-		"pdf:comparison:benchmark": "npm run build -w @timekeeper/contracts && npm run build:pdf && npm run build -w @timekeeper/server && node prototype/pdf/dist/comparison.js benchmark"
+		"pdf:comparison:benchmark": "npm run build -w @timekeeper/contracts && npm run build:pdf && npm run build -w @timekeeper/server && node prototype/pdf/dist/comparison.js benchmark",
+		"db:generate": "prisma generate --config prisma/app/prisma.config.ts",
+		"db:migrate": "umask 077 && RUST_LOG=info prisma migrate deploy --config prisma/app/prisma.config.ts",
+		"account": "node --env-file-if-exists=.env apps/server/dist/auth/operator.js"
 	},
 	"devDependencies": {
 		"@playwright/test": "1.65.0",

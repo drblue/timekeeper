@@ -42,6 +42,7 @@ describe('Timekeeper API', () => {
 
 	it('rejects an invalid response before serializing its contents', async () => {
 		app.get('/api/v1/broken', {
+			config: { publicAccess: true },
 			schema: {
 				response: { 200: HealthResponse, 500: ApiErrorResponse },
 			},
@@ -55,6 +56,17 @@ describe('Timekeeper API', () => {
 			message: 'The server could not complete the request.',
 			requestId: expect.any(String),
 		});
+		expect(response.body).not.toContain('do not disclose');
+	});
+
+	it('denies newly registered routes unless they explicitly allow public access', async () => {
+		app.get('/api/v1/private', async () => ({ privateData: 'do not disclose' }));
+
+		const response = await app.inject({ method: 'GET', url: '/api/v1/private' });
+
+		expect(response.statusCode).toBe(401);
+		expect(response.headers['cache-control']).toBe('no-store');
+		expect(response.json()).toMatchObject({ code: 'AUTH_REQUIRED' });
 		expect(response.body).not.toContain('do not disclose');
 	});
 

@@ -102,7 +102,7 @@ The following is a schema blueprint. Each provider has a reviewed Prisma schema 
 | Record | Important fields and constraints |
 | --- | --- |
 | Account | UUID, login email, password hash, timestamps; normalized login key unique |
-| Session | Hashed opaque token, account ID, creation/expiry, last use; no raw token stored |
+| Session | Hashed opaque token, account ID, creation and absolute expiry; no raw token stored |
 | Client | Account ID, name, nullable default rate in öre/hour, notes, archivedAt, revision |
 | Project | Account ID, nullable client ID, name, nullable rate override, billable default, notes, archivedAt, revision |
 | Entry | Account ID, kind, description, nullable project ID/direct client ID, start/end UTC or local date, integer seconds, billable, nullable assigned rate, amount, completion, invoice metadata, revision, deletedAt |
@@ -182,9 +182,9 @@ Configure SQLite foreign keys, WAL, a bounded busy timeout, and one application 
 
 ## 7. Authentication and files
 
-Use opaque server-side sessions, stored by token hash, with Secure, HttpOnly, SameSite cookies. Rotate the session after login; revoke sessions on password reset and provide logout. Use a maintained password-hashing implementation with a calibrated work factor; choose the exact package and session timeout during setup. Never implement password cryptography ourselves.
+Use opaque server-side sessions with a 12-hour absolute lifetime. Store the SHA-256 digest of a random 256-bit token and use Secure, HttpOnly, SameSite=Strict cookies over HTTPS. Login replaces any presented active session. Logout revokes the current session. Password change revokes all old sessions and issues a replacement, and local reset revokes all sessions. Session reads leave expiry fixed.
 
-Require same-origin checks and CSRF protection for cookie-authenticated mutations. Validate reverse-proxy trust configuration rather than accepting arbitrary forwarded headers. Rate-limit login attempts by normalized account and client address. Keep bootstrap/reset commands local to the operator and redact secrets from logs.
+Check the configured origin and a cookie-bound CSRF token for browser mutations, including login. The reverse proxy is trusted only when the immediate peer matches a configured literal IP. Login and current-password verification use separate, bounded per-process attempt counters by normalized email and client address. The account operator guide records dependency pins, work factors, timeout choices, and recovery commands. [Account operator guide](account-access.md)
 
 Session storage remains behind an authentication boundary so future native clients can use a separately reviewed login/token flow. Do not enable unrestricted credentialed CORS in anticipation of native apps.
 
