@@ -23,3 +23,9 @@ Issue #2 was pushed and closed before this work. Issue #3 prototype and evidence
 ## Physical Pi follow-up
 
 At the user's request, the same renderer revision was deployed temporarily to the physical Pi 4 at 192.168.1.6. The three dense and three large-report runs succeeded; target outputs passed independent validation. Sol (high reasoning) executed the isolated benchmark, Terra (high reasoning) checked the fetched outputs, and Astra (high reasoning) reviewed metrics and reporting. See the updated [evaluation](../report-renderer-evaluation.md) and raw evidence for the active-throttling conditions, measurements and confirmed cleanup. The previous statement that both physical hosts were unavailable describes the initial local session; only the x86-64 measurement remains outstanding now. React PDF remains provisional and issue #3 stays open.
+
+## Alternative renderer comparison
+
+At the user's request, Sol/high agents implemented pdfmake and sandboxed HTML/Chromium prototypes plus a shared fresh-worker benchmark at f6373a1; cancellation cleanup was fixed in 2f20337 after Astra/high review. Terra/high independently validated all 18 Pi PDFs, and Astra/high checked code and measurement reporting. See [the comparison](../pdf-renderer-comparison.md) for complete measurements, the thermal stop and recovered single-run annual comparison, target output provenance and confirmed cleanup.
+
+pdfmake is recommended as the next candidate: it gave the best measured total time and memory use while retaining complete report contents. No production renderer switch was made. Physical x86-64 validation and final renderer acceptance remain open; issue #3 is still open.

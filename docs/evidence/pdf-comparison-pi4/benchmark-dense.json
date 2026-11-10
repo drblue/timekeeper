@@ -1,0 +1,180 @@
+{
+	"fixture": "dense-sv",
+	"environment": {
+		"node": "v24.19.0",
+		"platform": "linux",
+		"arch": "arm64",
+		"osRelease": "6.12.75+rpt-rpi-v8",
+		"cpu": "Cortex-A72",
+		"logicalCpus": 4,
+		"totalMemoryBytes": 3980062720,
+		"chromiumExecutableOverride": null
+	},
+	"workerTimeoutMs": 180000,
+	"probeIntervalMs": 50,
+	"probeTimeoutMs": 1000,
+	"memorySampleIntervalMs": 100,
+	"memorySampling": "Maximum simultaneous sum of worker and descendant RSS from ps snapshots. Shared pages can be counted in more than one process. Transient peaks can be missed.",
+	"baseline": {
+		"requests": 41,
+		"failures": 0,
+		"p50Ms": 5.862359000000197,
+		"p95Ms": 16.870182000000113,
+		"maxMs": 19.51666400000022
+	},
+	"samples": [
+		{
+			"renderer": "react-pdf",
+			"repetition": 1,
+			"renderMs": 5057.697386999999,
+			"peakNodeRssKiB": 190312,
+			"bytes": 26091,
+			"wallMs": 6260.615509000001,
+			"peakSampledTreeRssKiB": 190720,
+			"memorySamples": 62,
+			"responsiveness": {
+				"requests": 123,
+				"failures": 0,
+				"p50Ms": 7.993757999999616,
+				"p95Ms": 20.004023999999845,
+				"maxMs": 62.76734699999997
+			}
+		},
+		{
+			"renderer": "pdfmake",
+			"repetition": 1,
+			"renderMs": 1454.618104,
+			"peakNodeRssKiB": 104896,
+			"bytes": 22958,
+			"wallMs": 2432.0866289999994,
+			"peakSampledTreeRssKiB": 105084,
+			"memorySamples": 24,
+			"responsiveness": {
+				"requests": 49,
+				"failures": 0,
+				"p50Ms": 8.275474000000031,
+				"p95Ms": 14.333643000001757,
+				"maxMs": 20.036746000001585
+			}
+		},
+		{
+			"renderer": "chromium",
+			"repetition": 1,
+			"renderMs": 2022.1212409999998,
+			"peakNodeRssKiB": 129128,
+			"bytes": 65415,
+			"wallMs": 4861.191124999999,
+			"peakSampledTreeRssKiB": 570376,
+			"memorySamples": 48,
+			"responsiveness": {
+				"requests": 96,
+				"failures": 0,
+				"p50Ms": 7.945944000000964,
+				"p95Ms": 16.133531000001312,
+				"maxMs": 24.50792899999942
+			}
+		},
+		{
+			"renderer": "pdfmake",
+			"repetition": 2,
+			"renderMs": 1866.5057889999998,
+			"peakNodeRssKiB": 106904,
+			"bytes": 22958,
+			"wallMs": 2756.048490000001,
+			"peakSampledTreeRssKiB": 106880,
+			"memorySamples": 27,
+			"responsiveness": {
+				"requests": 53,
+				"failures": 0,
+				"p50Ms": 8.600521999997,
+				"p95Ms": 36.458473999999114,
+				"maxMs": 66.0623880000021
+			}
+		},
+		{
+			"renderer": "chromium",
+			"repetition": 2,
+			"renderMs": 2111.678182,
+			"peakNodeRssKiB": 129632,
+			"bytes": 65415,
+			"wallMs": 4804.024953,
+			"peakSampledTreeRssKiB": 571824,
+			"memorySamples": 47,
+			"responsiveness": {
+				"requests": 95,
+				"failures": 0,
+				"p50Ms": 7.563099999999395,
+				"p95Ms": 15.645762999996805,
+				"maxMs": 25.84384499999942
+			}
+		},
+		{
+			"renderer": "react-pdf",
+			"repetition": 2,
+			"renderMs": 5987.910957,
+			"peakNodeRssKiB": 168844,
+			"bytes": 26091,
+			"wallMs": 7614.5922809999975,
+			"peakSampledTreeRssKiB": 169100,
+			"memorySamples": 74,
+			"responsiveness": {
+				"requests": 150,
+				"failures": 0,
+				"p50Ms": 6.149165999999241,
+				"p95Ms": 14.239588999997068,
+				"maxMs": 37.98603400000138
+			}
+		},
+		{
+			"renderer": "chromium",
+			"repetition": 3,
+			"renderMs": 2166.5403640000004,
+			"peakNodeRssKiB": 129096,
+			"bytes": 65415,
+			"wallMs": 4636.561179999997,
+			"peakSampledTreeRssKiB": 570376,
+			"memorySamples": 46,
+			"responsiveness": {
+				"requests": 92,
+				"failures": 0,
+				"p50Ms": 5.520624999997381,
+				"p95Ms": 13.086151000003156,
+				"maxMs": 20.31527699999424
+			}
+		},
+		{
+			"renderer": "react-pdf",
+			"repetition": 3,
+			"renderMs": 5501.685385000001,
+			"peakNodeRssKiB": 170328,
+			"bytes": 26091,
+			"wallMs": 7199.456034999996,
+			"peakSampledTreeRssKiB": 170644,
+			"memorySamples": 71,
+			"responsiveness": {
+				"requests": 141,
+				"failures": 0,
+				"p50Ms": 5.939190000004601,
+				"p95Ms": 13.431384000003163,
+				"maxMs": 25.864770000000135
+			}
+		},
+		{
+			"renderer": "pdfmake",
+			"repetition": 3,
+			"renderMs": 1641.9052809999998,
+			"peakNodeRssKiB": 104460,
+			"bytes": 22958,
+			"wallMs": 2693.729535999999,
+			"peakSampledTreeRssKiB": 104368,
+			"memorySamples": 26,
+			"responsiveness": {
+				"requests": 53,
+				"failures": 0,
+				"p50Ms": 6.059558000000834,
+				"p95Ms": 14.27121900000202,
+				"maxMs": 33.94193300000188
+			}
+		}
+	]
+}

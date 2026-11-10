@@ -1,0 +1,61 @@
+{
+	"fixture": "year-large-sv",
+	"environment": {
+		"node": "v24.19.0",
+		"platform": "linux",
+		"arch": "arm64",
+		"osRelease": "6.12.75+rpt-rpi-v8",
+		"cpu": "Cortex-A72",
+		"logicalCpus": 4,
+		"totalMemoryBytes": 3980062720,
+		"chromiumExecutableOverride": null
+	},
+	"workerTimeoutMs": 180000,
+	"probeIntervalMs": 50,
+	"probeTimeoutMs": 1000,
+	"memorySampleIntervalMs": 100,
+	"memorySampling": "Maximum simultaneous sum of worker and descendant RSS from ps snapshots. Shared pages can be counted in more than one process. Transient peaks can be missed.",
+	"baseline": {
+		"requests": 41,
+		"failures": 0,
+		"p50Ms": 5.120464999999967,
+		"p95Ms": 11.704770000000053,
+		"maxMs": 14.120773999999983
+	},
+	"samples": [
+		{
+			"renderer": "pdfmake",
+			"repetition": 1,
+			"renderMs": 17923.996784,
+			"peakNodeRssKiB": 313880,
+			"bytes": 647561,
+			"wallMs": 18789.118515000002,
+			"peakSampledTreeRssKiB": 314144,
+			"memorySamples": 186,
+			"responsiveness": {
+				"requests": 373,
+				"failures": 0,
+				"p50Ms": 7.546895000001314,
+				"p95Ms": 16.4206520000007,
+				"maxMs": 45.273354000000836
+			}
+		},
+		{
+			"renderer": "chromium",
+			"repetition": 1,
+			"renderMs": 24126.127499,
+			"peakNodeRssKiB": 150252,
+			"bytes": 527399,
+			"wallMs": 27123.843371,
+			"peakSampledTreeRssKiB": 1076724,
+			"memorySamples": 257,
+			"responsiveness": {
+				"requests": 522,
+				"failures": 0,
+				"p50Ms": 6.679691999997885,
+				"p95Ms": 19.52017800000249,
+				"maxMs": 69.46148900000117
+			}
+		}
+	]
+}

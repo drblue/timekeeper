@@ -1,0 +1,19 @@
+renderer	fixture	A4_pages	additional_checks
+react-pdf	dense-sv	8	53 project shares and tiny percentage
+react-pdf	detailed-en	6	both 68-step descriptions and 432-character tokens
+react-pdf	empty	3	
+react-pdf	no-project	3	
+react-pdf	single	3	
+react-pdf	year-large-sv	189	3200 ordered appendix rows checked against expected date, client, project, description, duration, rate and amount
+pdfmake	dense-sv	7	53 project shares and tiny percentage
+pdfmake	detailed-en	6	both 68-step descriptions and 432-character tokens
+pdfmake	empty	3	
+pdfmake	no-project	3	
+pdfmake	single	3	
+pdfmake	year-large-sv	156	3200 ordered appendix rows checked against expected date, client, project, description, duration, rate and amount
+chromium	dense-sv	8	53 project shares and tiny percentage
+chromium	detailed-en	6	both 68-step descriptions and 432-character tokens
+chromium	empty	3	
+chromium	no-project	3	
+chromium	single	3	
+chromium	year-large-sv	189	3200 ordered appendix rows checked against expected date, client, project, description, duration, rate and amount

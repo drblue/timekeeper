@@ -1,0 +1,4 @@
+
+> timekeeper@0.1.0 build:pdf
+> tsc -p prototype/pdf/tsconfig.json
+

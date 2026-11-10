@@ -1,0 +1,78 @@
+Source revision: 2f20337c5ed54c1d6e6f4ea7af28b0f9a6f9fded
+Lockfile SHA-256: d2dbd7514a1e05863bcdf14684e6ccb532f02d9a5f59eeb40a470caa6b0e8197
+Node: v24.19.0
+npm: 11.17.0
+Runtime: linux/arm64
+timekeeper@0.1.0 /home/jn/timekeeper-pdf-compare.Q7o467/source
+├── @playwright/test@1.65.0
+├── @react-pdf/renderer@4.9.0
+└── pdfmake@0.3.14
+
+
+Playwright browser manifest
+[
+	{
+		"name": "chromium",
+		"revision": "1254",
+		"installByDefault": true,
+		"browserVersion": "158.0.8127.18",
+		"title": "Chrome for Testing"
+	},
+	{
+		"name": "chromium-headless-shell",
+		"revision": "1254",
+		"installByDefault": true,
+		"browserVersion": "158.0.8127.18",
+		"title": "Chrome Headless Shell"
+	}
+]
+
+Installed Chromium binaries
+pw-browsers/chromium_headless_shell-1254/chrome-headless-shell-linux-arm64/chrome-headless-shell
+Google Chrome for Testing 158.0.8127.18
+
+Chromium renderer launch configuration
+export function launchReportChromium() {
+	return chromium.launch({
+		chromiumSandbox: true,
+		executablePath: process.env.PDF_CHROMIUM_EXECUTABLE_PATH,
+	});
+}
+
+Fontconfig and isolated font packages
+dpkg-query: no packages found matching libfontconfig1
+fonts-liberation_1%3a2.1.5-3_all.deb
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+<dir><stage>/font-root/usr/share/fonts</dir>
+<cachedir><stage>/font-cache</cachedir>
+<alias><family>Arial</family><prefer><family>Liberation Sans</family></prefer></alias>
+<alias><family>Helvetica</family><prefer><family>Liberation Sans</family></prefer></alias>
+<alias><family>sans-serif</family><prefer><family>Liberation Sans</family></prefer></alias>
+<alias><family>serif</family><prefer><family>Liberation Serif</family></prefer></alias>
+<alias><family>monospace</family><prefer><family>Liberation Mono</family></prefer></alias>
+</fontconfig>
+LiberationMono-BoldItalic.ttf
+LiberationMono-Bold.ttf
+LiberationMono-Italic.ttf
+LiberationMono-Regular.ttf
+LiberationSans-BoldItalic.ttf
+LiberationSans-Bold.ttf
+LiberationSans-Italic.ttf
+LiberationSans-Regular.ttf
+LiberationSerif-BoldItalic.ttf
+LiberationSerif-Bold.ttf
+LiberationSerif-Italic.ttf
+LiberationSerif-Regular.ttf
+
+Isolated browser library packages
+libatk1.0-0t64_2.56.2-1+deb13u2_arm64.deb
+libatspi2.0-0t64_2.56.2-1+deb13u2_arm64.deb
+libxcomposite1_1%3a0.4.6-1_arm64.deb
+libxdamage1_1%3a1.1.6-1+b2_arm64.deb
+libxfixes3_1%3a6.0.0-2+b4_arm64.deb
+libxi6_2%3a1.8.2-1_arm64.deb
+libxkbcommon0_1.13.1-1~bpo13+1+rpt1_arm64.deb
+libxrandr2_2%3a1.5.4-1+b3_arm64.deb
+libxrender1_1%3a0.9.12-1_arm64.deb

@@ -1,0 +1,12 @@
+2026-11-10T18:11:12.364Z Ready after cooldown at 82776 m°C
+2026-11-10T18:11:12.403Z fixture-empty started
+2026-11-10T18:11:16.498Z fixture-empty finished with status 0
+2026-11-10T18:11:16.521Z fixture-single started
+2026-11-10T18:11:22.647Z fixture-single finished with status 0
+2026-11-10T18:11:22.670Z fixture-no-project started
+2026-11-10T18:11:28.813Z fixture-no-project finished with status 0
+2026-11-10T18:11:28.836Z fixture-detailed-en started
+2026-11-10T18:11:34.947Z fixture-detailed-en finished with status 0
+2026-11-10T18:11:34.969Z fixture-dense-sv started
+2026-11-10T18:11:43.147Z fixture-dense-sv finished with status 0
+2026-11-10T18:11:43.254Z Recorded 26 target fixture checksums

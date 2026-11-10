@@ -1,0 +1,55 @@
+Phase: after
+UTC: 2026-11-10T18:10:20Z
+Model: Raspberry Pi 4 Model B Rev 1.1
+Kernel: Linux 6.12.75+rpt-rpi-v8 aarch64
+OS: Debian GNU/Linux 13 (trixie)
+Logical CPUs: 4
+OS page bytes: 4096
+CPU allowed list: 0-3
+Nice: 0
+Governor: ondemand
+Load: 2.08 1.93 1.34
+temp=85.7'C
+throttled=0xe0006
+
+Filesystem for benchmark checkout and TMPDIR, plus system /tmp, in KiB
+Filesystem     Type  1K-blocks     Used Available Use% Mounted on
+/dev/sda2      ext4  460895848 26961972 415143252   7% /
+/dev/sda2      ext4  460895848 26961972 415143252   7% /
+tmpfs          tmpfs   1943392     5744   1937648   1% /tmp
+
+Host block devices
+loop0        1 loop
+sda   usb    1 disk
+zram0        0 disk
+
+Memory and swap, in KiB
+MemTotal:        3886780 kB
+MemAvailable:    2157816 kB
+SwapTotal:       2097148 kB
+SwapFree:        1543084 kB
+pswpin 148651
+pswpout 345465
+
+Running Docker container count
+7
+Running container ID set SHA-256: fd9feaf5e860987ba4332e9641154135574bfd9674ec0daa2c65045df389a301
+
+Background process names and lifetime CPU usage (no arguments)
+COMMAND         %CPU %MEM
+ps               300  0.0
+postgres         8.3  0.3
+postgres         7.6  0.3
+MainThread       2.6 10.5
+postgres         1.2  0.3
+dockerd          0.9  4.4
+containerd       0.8  1.3
+codex            0.5  3.1
+bash             0.4  0.0
+uvicorn          0.4  3.1
+node-MainThread  0.4  4.5
+MainThread       0.3  1.6
+tailscaled       0.2  0.8
+containerd-shim  0.2  0.4
+avahi-daemon     0.2  0.1
+kworker/0:0-eve  0.1  0.0

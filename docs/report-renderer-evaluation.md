@@ -1,5 +1,7 @@
 # Report renderer evaluation
 
+A subsequent [comparison of pdfmake and HTML/Chromium](pdf-renderer-comparison.md) evaluates alternatives on the same Pi, including the actual six-page workload. The 92–109 second results below are for the 189-page annual report.
+
 React PDF 4.9.0 rendered the six synthetic fixtures with the expected A4 layout and report data on an Apple Silicon Mac and a physical Raspberry Pi 4. Pi measurements are recorded below. Keep the renderer provisional pending physical x86-64 measurements and the final resource-budget decision. If either target fails the layout or resource gate, evaluate HTML-to-PDF with the same report data, fixtures, and API probe, including the browser's resource use. See [technical design §9](technical-design.md#9-reports-and-provisional-react-pdf-gate).
 
 ## Reproduce the samples

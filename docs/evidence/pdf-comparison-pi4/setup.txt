@@ -1,0 +1,61 @@
+Physical Raspberry Pi 4 comparison measured revision
+2f20337c5ed54c1d6e6f4ea7af28b0f9a6f9fded. The checkout was
+transported as a Git archive of f6373a15e93f30e2a19ab766bfd1130a42308447
+and then updated with the comparison harness interruption fix. The SHA-256
+of all 80 tracked files matched revision 2f20337 before the prototype was
+rebuilt. The runtime, libraries, browser, fonts, npm cache and temporary
+files were isolated on the host's ext4 storage. The Node archive checksum
+matched the official release manifest.
+
+The Pi ran npm ci, built the contracts, PDF prototype and server, and
+launched the ARM64 Chrome Headless Shell with sandboxing enabled. After
+the interruption fix, npm run build:pdf passed. Nine needed browser
+library packages and the Liberation font package were unpacked privately.
+The system's software and service configuration were left in place.
+The rebuild used nice 10 and the measured commands ran at nice 0.
+
+The initial comparison used these compiled commands on the Pi, with
+one worker at a time and the default rotating renderer order.
+
+    node prototype/pdf/dist/comparison.js benchmark detailed-en 3 RESULT
+    node prototype/pdf/dist/comparison.js benchmark dense-sv 3 RESULT
+    node prototype/pdf/dist/comparison.js benchmark year-large-sv 3 RESULT
+
+Host telemetry was sampled about every two seconds. The guard stopped the
+comparison process and its descendants if temperature reached 88°C or
+available memory dropped below 256 MiB. The initial annual attempt stopped
+at 88.133°C during the second React PDF worker. The harness writes its
+timings only after completing the requested set. Consequently there is
+no complete initial annual benchmark JSON. The first completed React PDF
+annual artifact and the most recent completed pdfmake and Chromium annual
+artifacts were retained and checksummed from the interrupted run.
+
+After the Pi cooled below 83.5°C, one annual pass for the alternatives
+completed. Its measurements and telemetry use annual-prefixed filenames.
+
+    node prototype/pdf/dist/comparison.js benchmark year-large-sv 1 RESULT pdfmake,chromium
+
+The five shorter React PDF artifacts were reused from the earlier physical
+Pi run. The React PDF renderer, shared formatting, and fixture code are
+identical to that run. Prior fixture checksums are recorded under
+docs/evidence/pdf-pi4/fixtures.sha256.
+
+After a separate cooldown, the five shorter pdfmake and Chromium fixtures
+were rendered in series. The short-prefixed host snapshots, samples and
+workload log record this pass. Its 26 target checksums cover the 20 shorter
+artifact files and the six retained annual files. All matched after
+transfer. The local fixtures.sha256 adds the ten reused React PDF files
+and covers all 36 artifacts under output/pdf/comparison-pi4.
+
+The three expected-data JSON files for each fixture were byte-identical.
+Poppler text extraction and geometry checks covered 602 A4 pages across
+all 18 PDFs. Checks included sequential footers, extracted text within
+the page bounds, the owner and report totals, and the dense, long-text
+and annual cases listed in artifact-checks.tsv. The annual Chromium PDF
+embeds Liberation Sans regular and bold. These checks accompany the
+independent visual inspection.
+
+Cleanup found no process with its working directory or executable under
+the staging directory. The directory was removed after transfer and
+verification. All host snapshots and the final cleanup check reported
+the same set of seven running container IDs.
