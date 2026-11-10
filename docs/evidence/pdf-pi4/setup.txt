@@ -1,0 +1,23 @@
+npm ci --no-audit --no-fund: passed (376 packages)
+npm run build -w @timekeeper/contracts: passed (prerequisite for clean checkout)
+npm run typecheck:pdf: passed
+Setup commands ran with nice 10. Benchmarks used normal process priority.
+
+Source transport used git archive from the recorded commit. The source
+archive SHA-256 matched before and after transfer. The ARM64 Node release
+archive was checked against https://nodejs.org/dist/v24.19.0/SHASUMS256.txt.
+Both benchmarks ran directly on the host with the installed services active.
+Each command built the prototype, contracts and server before opening its
+ephemeral loopback health listener. TMPDIR was on the ext4 host disk.
+
+Host samples were taken about once per second. The render phase denotes
+samples with a renderer worker present. Build, startup and probe-only
+samples are labeled separately. Swap counters are system-wide Linux pages
+of 4096 bytes. The test would stop if a sample reached 88 C or if available
+RAM dropped below 256 MiB.
+
+The year-large-sv PDF and fixture JSON were transferred from the first
+completed measured worker. Five shorter artifacts were rendered separately
+on the Pi and checked against the Pi's SHA-256 checksums after transfer.
+The redundant standalone year pass was stopped once launched to avoid
+repeating the work. The local manifest covers all six target PDF/JSON pairs.

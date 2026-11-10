@@ -1,6 +1,6 @@
 # Report renderer evaluation
 
-React PDF 4.9.0 rendered the six synthetic fixtures with the expected A4 layout and report data on an Apple Silicon Mac. Keep the renderer provisional until the performance and API responsiveness runs on a physical Raspberry Pi 4 and an x86-64 host. If either target fails the layout or resource gate, evaluate HTML-to-PDF with the same report data, fixtures, and API probe, including the browser's resource use. See [technical design §9](technical-design.md#9-reports-and-provisional-react-pdf-gate).
+React PDF 4.9.0 rendered the six synthetic fixtures with the expected A4 layout and report data on an Apple Silicon Mac and a physical Raspberry Pi 4. Pi measurements are recorded below. Keep the renderer provisional pending physical x86-64 measurements and the final resource-budget decision. If either target fails the layout or resource gate, evaluate HTML-to-PDF with the same report data, fixtures, and API probe, including the browser's resource use. See [technical design §9](technical-design.md#9-reports-and-provisional-react-pdf-gate).
 
 ## Reproduce the samples
 
@@ -8,6 +8,7 @@ Use Node.js 24.19.0, npm 11.17.0, and the committed lockfile. The renderer proto
 
 ```sh
 npm ci
+npm run build -w @timekeeper/contracts
 npm run typecheck:pdf
 npm run fixture:pdf
 ```
@@ -65,6 +66,43 @@ Measured on 2026-11-10 at revision `7deccdfe3ffac33272f5cb2bda0258b9b4d5e316`. T
 
 An early unbatched appendix took approximately 108 seconds and reached 1.61 GiB peak RSS in a development run that overlapped other work. The current renderer lays out table rows in batches of at most 72, then wraps each batch across pages, avoiding a layout pass over all pending rows at each page break. The early run informed the batching decision. The six isolated samples above provide the local evidence for the committed prototype.
 
-## Open hardware gate
+## Physical Raspberry Pi 4 measurement
 
-Run both benchmark commands on the physical Pi 4 and the physical x86-64 host. Record model, process architecture, OS and Node version, available RAM, storage for the working directory and `TMPDIR`, and other active workloads. Preserve the JSON output, record time and memory under the intended deployment load, and inspect the PDFs produced on those hosts. Use those measurements to choose worker limits and decide whether to accept React PDF or evaluate the fallback. No target-host measurements were available in this evaluation.
+Measured on 2026-11-10 at the same renderer revision `7deccdfe3ffac33272f5cb2bda0258b9b4d5e316`, on the user-authorized Pi at 192.168.1.6. It is a Raspberry Pi 4 Model B Rev 1.1 with four Cortex-A72 cores and 4 GB RAM (3,886,780 KiB reported by Linux), running Debian 13 and kernel `6.12.75+rpt-rpi-v8` in native ARM64 mode. An isolated, checksum-verified Node 24.19.0 runtime supplied npm 11.17.0. The installed system runtime was not replaced.
+
+The source archive and lockfile were verified after transfer. The temporary checkout, npm cache and renderer TMPDIR used the ext4 USB-attached `/dev/sda2` filesystem, not RAM-backed `/tmp`. Setup used nice 10; benchmarks ran at nice 0 on all four CPUs with the existing ondemand governor. Seven existing containers and other background processes remained active. These are measurements under that host's operating conditions, not an otherwise-idle controlled hardware comparison.
+
+A fresh checkout exposed a missing prerequisite in the earlier reproduction instructions: build the shared contracts before compiling the PDF prototype. The command above now includes that step. The benchmark source was not changed for the Pi run.
+
+Raw evidence: [dense measurements](evidence/pdf-pi4/benchmark-dense.json), [year measurements](evidence/pdf-pi4/benchmark-year.json), [before](evidence/pdf-pi4/host-before.txt), [after](evidence/pdf-pi4/host-after.txt), and [sampled host telemetry](evidence/pdf-pi4/host-samples.tsv).
+
+| Fixture / run | Render seconds | Worker wall seconds | Peak worker RSS MiB | Probe requests / failures | API p95 ms | API max ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dense baseline | | | | 41 / 0 | 12.51 | 15.12 |
+| Dense 1 | 3.169 | 4.498 | 182.6 | 90 / 0 | 13.61 | 18.12 |
+| Dense 2 | 3.908 | 4.946 | 182.9 | 99 / 0 | 18.34 | 32.63 |
+| Dense 3 | 4.229 | 5.663 | 183.0 | 112 / 0 | 23.52 | 54.90 |
+| Year baseline | | | | 41 / 0 | 15.16 | 18.83 |
+| Year 1 | 92.426 | 93.988 | 594.9 | 1878 / 0 | 11.02 | 57.67 |
+| Year 2 | 98.674 | 100.341 | 633.0 | 2006 / 0 | 8.74 | 75.33 |
+| Year 3 | 108.556 | 110.880 | 656.5 | 2216 / 0 | 9.89 | 102.01 |
+
+All 6,483 liveness probes succeeded (82 baseline, 301 during dense workers, 6,100 during year workers). RSS is the renderer child process high-water mark sampled through render completion, not combined application/OS memory. Worker wall time includes startup and output writes. Liveness has no database workload, so these results do not establish full application latency under production load.
+
+### Thermal and memory conditions
+
+The pre-benchmark snapshot was already 81.8°C with historical throttling flags. During dense render samples temperatures were 83.263–86.185°C; year render samples were 83.750–87.159°C. Current frequency-cap/throttling bits (`0x6`) and current soft-temperature-limit bits (`0x8`) were observed in both workloads; high bits also retained history. The Pi therefore did not run in a cool, unthrottled steady state. These readings establish the conditions, but cannot quantify how much faster different cooling would make the renderer. See the official [flag definitions](https://www.raspberrypi.com/documentation/computers/os.html#get_throttled).
+
+Minimum sampled available memory during the year render phase was 1,170.2 MiB. System-wide swap counters across before/after benchmark snapshots increased by 716 pages in and 4,151 pages out (2.80 MiB and 16.21 MiB with 4 KiB pages). These are whole-host counters and cannot be attributed solely to the PDF worker. A guard would stop the test at 88°C or below 256 MiB available; it did not trigger. The native render results support asynchronous generation with one worker as designed; they do not support promising interactive-speed generation of the 3,200-row report on this host.
+
+### Target output and cleanup
+
+The first successfully completed measured year worker supplied the retained 189-page target PDF. The five shorter fixture PDFs were generated separately on the Pi. They are available locally under `output/pdf/pi4/`; their [checksums](evidence/pdf-pi4/fixtures.sha256) were verified after transfer. All six expected-data JSON files and all six extracted PDF layout texts match the Mac outputs.
+
+Independent validation with gpt-6.1-terra (high reasoning) checked A4 geometry, text bounds and sequential numbering across the target outputs, reconciled the 3,200 year detail rows and totals, and inspected representative rendered images including long text, legend continuation, empty/100% pies and the last appendix page. No clipping or overlap was observed in those images. This was not a visual inspection of every page or a guarantee of every vector graphic's bounds.
+
+The temporary directory containing the isolated runtime and checkout was removed after fetching the evidence. [Cleanup verification](evidence/pdf-pi4/cleanup.txt) found no processes rooted in that temporary directory and confirmed the seven pre-existing containers remained running. No system runtime, cooling configuration, or existing service configuration was changed.
+
+## Remaining hardware gate
+
+The physical Pi 4 run is complete and its thermal limitations are documented. The physical x86-64 benchmark and target-output inspection remain open. Run both benchmark commands there and record model, architecture, OS, runtime, available RAM, storage, other workloads and raw JSON. Use that evidence alongside the Pi results to set production worker limits and make the final renderer decision. React PDF remains provisional; successful local and Pi runs do not close issue #3 by themselves.

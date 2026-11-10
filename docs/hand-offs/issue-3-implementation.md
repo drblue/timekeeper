@@ -19,3 +19,7 @@ All fixture layout checks passed in this implementation run. React PDF remains p
 Local prototype, layout validation, and code review gates passed. Issue #3 is not complete: physical Pi 4 and x86-64 host benchmarks and target-output inspection remain open. React PDF remains provisional; do not close this ticket or unblock production PDF integration based on local Mac evidence alone. The coordinator requested suitable benchmark hosts from the user; none were provided during this session.
 
 Issue #2 was pushed and closed before this work. Issue #3 prototype and evidence are committed locally on `dev`; no production renderer adoption or remote deployment occurred.
+
+## Physical Pi follow-up
+
+At the user's request, the same renderer revision was deployed temporarily to the physical Pi 4 at 192.168.1.6. The three dense and three large-report runs succeeded; target outputs passed independent validation. Sol (high reasoning) executed the isolated benchmark, Terra (high reasoning) checked the fetched outputs, and Astra (high reasoning) reviewed metrics and reporting. See the updated [evaluation](../report-renderer-evaluation.md) and raw evidence for the active-throttling conditions, measurements and confirmed cleanup. The previous statement that both physical hosts were unavailable describes the initial local session; only the x86-64 measurement remains outstanding now. React PDF remains provisional and issue #3 stays open.

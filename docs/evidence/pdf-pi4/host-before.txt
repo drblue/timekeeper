@@ -1,0 +1,64 @@
+Phase: before
+UTC: 2026-11-10T16:01:00Z
+Model: Raspberry Pi 4 Model B Rev 1.1
+Kernel: Linux 6.12.75+rpt-rpi-v8 aarch64 GNU/Linux
+OS: Debian GNU/Linux 13 (trixie)
+Logical CPUs: 4
+OS page bytes: 4096
+CPU allowed list: 0-3
+Nice: 0
+Governor: ondemand
+Load: 0.88 0.64 0.45
+temp=81.8'C
+throttled=0xe0000
+
+Filesystem for benchmark checkout and TMPDIR, plus system /tmp, in KiB
+Filesystem     Type  1K-blocks     Used     Avail Use% Mounted on
+/dev/sda2      ext4  460895848 26530964 415574260   7% /
+/dev/sda2      ext4  460895848 26530964 415574260   7% /
+tmpfs          tmpfs   1943392     5448   1937944   1% /tmp
+
+Host block devices
+loop0        1 loop
+sda   usb    1 disk
+zram0        0 disk
+
+Memory and swap, in KiB
+MemTotal:        3886780 kB
+MemAvailable:    2052260 kB
+SwapTotal:       2097148 kB
+SwapFree:        1556652 kB
+pswpin 147224
+pswpout 341194
+
+System CPU and memory pressure
+Unavailable on this kernel
+
+Running Docker container count
+7
+
+Background process names and lifetime CPU usage (no arguments)
+sshd-session     4.0  0.2
+MainThread       2.6 15.1
+bash             1.8  0.0
+dockerd          0.9  4.4
+containerd       0.8  1.3
+codex            0.5  3.0
+uvicorn          0.4  3.1
+node-MainThread  0.4  4.6
+MainThread       0.3  2.1
+tailscaled       0.2  0.8
+containerd-shim  0.2  0.5
+avahi-daemon     0.2  0.1
+irq/41-mmc0      0.1  0.0
+main             0.0  0.6
+kworker/u17:2-i  0.0  0.0
+rpi-connectd     0.0  0.2
+
+Isolated runtime
+v24.19.0
+11.17.0
+linux/arm64
+Source revision: 7deccdfe3ffac33272f5cb2bda0258b9b4d5e316
+Source archive SHA-256: fd6fa403f9f17d4a9bd0681762447ac66fa068d2aaeca76d3144733d17f38160
+Lockfile SHA-256: bf7992a746e11dd849b22d36422c64bfd4675a85be98fcf553f269b15ec52f75

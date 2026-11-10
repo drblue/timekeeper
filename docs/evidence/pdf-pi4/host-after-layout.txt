@@ -1,0 +1,10 @@
+UTC: 2026-11-10T16:07:29Z
+1.66 1.71 1.06
+temp=83.7'C
+throttled=0xe0008
+MemTotal:        3886780 kB
+MemAvailable:    2093860 kB
+SwapTotal:       2097148 kB
+SwapFree:        1540524 kB
+pswpin 147941
+pswpout 345345

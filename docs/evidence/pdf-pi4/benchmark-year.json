@@ -1,0 +1,62 @@
+{
+	"fixture": "year-large-sv",
+	"environment": {
+		"node": "v24.19.0",
+		"platform": "linux",
+		"arch": "arm64",
+		"osRelease": "6.12.75+rpt-rpi-v8",
+		"cpu": "Cortex-A72",
+		"logicalCpus": 4,
+		"totalMemoryBytes": 3980062720
+	},
+	"probeIntervalMs": 50,
+	"probeTimeoutMs": 1000,
+	"baseline": {
+		"requests": 41,
+		"failures": 0,
+		"p50Ms": 5.959781000000021,
+		"p95Ms": 15.156214999999975,
+		"maxMs": 18.83226700000023
+	},
+	"samples": [
+		{
+			"renderMs": 92426.201148,
+			"peakRssKiB": 609164,
+			"bytes": 576761,
+			"wallMs": 93988.030816,
+			"responsiveness": {
+				"requests": 1878,
+				"failures": 0,
+				"p50Ms": 5.002745999998297,
+				"p95Ms": 11.015285000001313,
+				"maxMs": 57.669073000000935
+			}
+		},
+		{
+			"renderMs": 98673.62831,
+			"peakRssKiB": 648212,
+			"bytes": 576761,
+			"wallMs": 100340.78109799999,
+			"responsiveness": {
+				"requests": 2006,
+				"failures": 0,
+				"p50Ms": 4.807601999986218,
+				"p95Ms": 8.74486999999499,
+				"maxMs": 75.32671700000355
+			}
+		},
+		{
+			"renderMs": 108556.438,
+			"peakRssKiB": 672284,
+			"bytes": 576761,
+			"wallMs": 110880.16845599998,
+			"responsiveness": {
+				"requests": 2216,
+				"failures": 0,
+				"p50Ms": 4.6728450000227895,
+				"p95Ms": 9.894068000023253,
+				"maxMs": 102.00728099999833
+			}
+		}
+	]
+}
