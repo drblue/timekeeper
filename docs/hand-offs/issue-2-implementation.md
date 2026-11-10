@@ -72,4 +72,4 @@ Final code revision: `6f39d98aee2b7917de7298a559b3693b729046bd`. Documentation r
 
 The coordinator accepted the implementation after both gates passed. Physical-host testing remains unavailable; the non-failing slim-image OpenSSL warnings are recorded above rather than treated as proof of a production-ready base image.
 
-Issue #1 was pushed and closed before this work began. Issue #2 implementation and acceptance evidence are committed locally on `dev`; this session has not pushed these new commits or closed issue #2.
+Issue #1 was pushed and closed before this work began. Follow-up: the accepted issue #2 commits through `3a5170a` were pushed to `origin/dev` and issue #2 was closed as completed before issue #3 began.
