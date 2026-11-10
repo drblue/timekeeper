@@ -17,4 +17,10 @@ The pinned npm workspaces build a React page with TanStack Router and Query. Fas
 
 This is the initial browser and API slice. Database readiness, persistence, account access, browser installation, and time-tracking workflows belong to later work. Browser execution covered Chromium with desktop and phone viewports on macOS, with target hosting hardware and other browser engines unverified.
 
-The coordinator will obtain independent validation and review against the implementation revision before integration.
+## Routing error follow-up
+
+- Fix revision `3898fc2c3e1c2050e76926f375ee291f1e4e676f` on `dev`, implemented by `gpt-6.1-sol` with medium reasoning.
+- Fastify now sends routing-stage errors through the same API error handler as route errors. A malformed path returns a sanitized JSON response with a server-generated request ID and `Cache-Control: no-store`.
+- The malformed-path regression failed before the fix and passed afterward. `PLAYWRIGHT_BROWSERS_PATH=/private/tmp/timekeeper-playwright npm run check` passed the type checks, production build, six API tests, and four Chromium tests.
+
+The coordinator will obtain independent revalidation and review of the routing error fix before integration.
