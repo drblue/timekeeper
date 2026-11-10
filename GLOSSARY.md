@@ -32,3 +32,12 @@ A time entry marked as included on an invoice created outside Timekeeper. It may
 
 **Time report**:
 A presentation of recorded work over a selected date range, optionally restricted by client or project. It is distinct from an invoice.
+
+**Timed entry**:
+A time entry with known start and end times, whether captured by a timer or entered manually.
+
+**Duration-only entry**:
+A time entry assigned to a date and duration without start or end times.
+
+**Archived client or project**:
+A client or project retained for historical work and reporting but hidden from normal choices for new work.
