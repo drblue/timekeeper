@@ -1,0 +1,65 @@
+The 2026-11-10 test used a Git archive of
+ddc7184e8d078a0e7cae6777f38f286d19333dd8. The archive SHA-256 and
+the checksums of all 108 archived files matched on the VPS.
+The Docker image rechecked the source before npm ci and built contracts,
+server and PDF prototype from the existing lockfile. The renderer, API
+and harness sources and lockfile match the Pi comparison revision 2f20337.
+The linux/amd64 Node base image and final test image are recorded by digest.
+
+The initial build was checked at points, including roughly 32 seconds in
+with about 2,273 MiB available, and after it completed with about 2,392
+MiB available. The attempted mid-build watchdog failed to handle missing
+Docker health fields. The first non-root smoke run exposed restrictive
+source permissions from the private staging umask. A cached image layer
+corrected file and directory modes without changing content. The
+corrected build ran with a 300-second timeout and a two-second guard for
+host available memory, disk space and the existing containers' states.
+
+The temporary container ran as 1000:1001, with a read-only root filesystem,
+private PID and IPC namespaces, Docker init, no external networking or
+published ports, and only a dedicated output bind. Effective cgroup
+limits were 1.5 vCPU quota across two visible vCPUs, 2 GiB memory, zero
+swap allowance and 256 tasks. The private tmpfs and shm limits were 512
+MiB each; used pages count against the memory cap. The host is a KVM VPS.
+
+The original Playwright v1.65.0 Docker seccomp profile permits namespace
+creation, but with all outer capabilities dropped it blocked the chroot
+Chromium uses to isolate its renderer in a nested namespace. The final
+temporary profile changed only the chroot rule's capability gate.
+The kernel still enforces the chroot capability check. The test used
+Docker AppArmor, dropped all Docker capabilities, and set no-new-privileges.
+The preflight launched the exact production-candidate Chromium helper,
+generated a probe PDF, inspected the real launch arguments, and observed
+the Chromium renderer in a nested PID namespace with two seccomp filters
+against the surrounding container process's one.
+
+Playwright profile source:
+https://raw.githubusercontent.com/microsoft/playwright/v1.65.0/utils/docker/seccomp_profile.json
+Chromium sandbox chroot source:
+https://chromium.googlesource.com/chromium/src/+/lkgr/sandbox/linux/services/credentials.cc
+
+All workloads ran in one measured container, with one worker at a time
+and the existing rotation. The API probe ran against ephemeral loopback
+liveness at 50 ms intervals. It had no database traffic. The fixture run
+was separate from the timed runs.
+
+    node prototype/pdf/dist/comparison.js benchmark detailed-en 3 /bench-out/benchmark-detailed.json
+    node prototype/pdf/dist/comparison.js benchmark dense-sv 3 /bench-out/benchmark-dense.json
+    node prototype/pdf/dist/comparison.js benchmark year-large-sv 3 /bench-out/benchmark-year.json
+    node prototype/pdf/dist/comparison.js render all all /bench-out/fixtures
+
+The supervisor sampled host and benchmark cgroup resources about every
+two seconds, and checked the five preexisting Docker containers for
+status, restart count, start time and Docker health state changes.
+It had a 384 MiB host available-memory stop threshold and checked cgroup
+OOM kills. All four workloads exited successfully without a guard stop.
+The preexisting containers retained their recorded
+identities and states. These checks cover Docker-visible service state.
+
+The 18 fixture PDFs, 18 companion JSON files and three benchmark JSON files
+all matched their VPS checksums after transfer. Exact run configuration,
+profiles and raw setup/workload logs are retained locally with the
+artifacts under output/pdf/comparison-vps/. The temporary containers,
+both temporary image tags and staging directory were removed after
+transfer verification. Docker's shared build cache was outside the
+cleanup scope.

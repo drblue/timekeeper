@@ -1,0 +1,53 @@
+2026-11-10T21:12:36Z
+bob-4gb-hel1-3
+Linux 7.0.0-43-generic x86_64
+PRETTY_NAME="Ubuntu 26.04.1 LTS"
+NAME="Ubuntu"
+VERSION_ID="26.04"
+VERSION="26.04.1 LTS (Resolute Raccoon)"
+VERSION_CODENAME=resolute
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=resolute
+LOGO=ubuntu-logo
+Architecture:                            x86_64
+CPU op-mode(s):                          32-bit, 64-bit
+Address sizes:                           40 bits physical, 57 bits virtual
+Byte Order:                              Little Endian
+CPU(s):                                  2
+On-line CPU(s) list:                     0,1
+Vendor ID:                               AuthenticAMD
+Model name:                              AMD EPYC-Genoa Processor
+CPU family:                              25
+Model:                                   17
+Thread(s) per core:                      1
+Core(s) per socket:                      2
+Socket(s):                               1
+Stepping:                                0
+BogoMIPS:                                4799.99
+Flags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm rep_good nopl xtopology cpuid extd_apicid tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm cmp_legacy cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw topoext perfctr_core ssbd ibrs ibpb stibp ibrs_enhanced vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves avx512_bf16 clzero xsaveerptr wbnoinvd arat avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq la57 rdpid fsrm
+Hypervisor vendor:                       KVM
+Virtualization type:                     full
+MemTotal:        3900596 kB
+MemAvailable:    2392520 kB
+SwapTotal:             0 kB
+SwapFree:              0 kB
+1.97 0.85 0.41 1/475 17187
+some avg10=19.13 avg60=14.79 avg300=6.72 total=44976751
+full avg10=0.00 avg60=0.00 avg300=0.00 total=0
+some avg10=0.00 avg60=0.04 avg300=0.00 total=600945
+full avg10=0.00 avg60=0.01 avg300=0.00 total=519062
+some avg10=0.04 avg60=0.32 avg300=0.74 total=9706471
+full avg10=0.04 avg60=0.28 avg300=0.53 total=6813227
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1        75G   35G   38G  48% /
+Docker 29.9.3 x86_64 cgroup=2 driver=overlayfs
+568074f8e05cd5c9dfe2c7a604491f62f3fa21c057c178e2affa2ad3c312be1c swapi-app-1 Up 13 minutes
+b0c692b48f91c8366899a20ccf1cec43dc4d2bbe6ed98f963c1586a92c8bacff photo-api-tester Up 13 minutes
+a9b6630c50802ad8636e6e72e6bd4946adbcdef4e099d75657b0c48e18c8860c swapi-db-1 Up 13 minutes (healthy)
+e95253a46309efc9e31fdc85a13eea3d4580d0b1b4bc7452f03e28bd2f11b29e koinsight Up 13 minutes
+990c61521e3e07bd706e10a6d0826b434b06f2e3f399cbcabae0b7e45be56427 webdav Up 13 minutes

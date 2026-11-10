@@ -1,0 +1,15 @@
+--- Playwright v1.65.0 upstream
++++ benchmark profile
+@@ -696,11 +696,7 @@
+       "args": [],
+       "comment": "",
+       "excludes": {},
+-      "includes": {
+-        "caps": [
+-          "CAP_SYS_CHROOT"
+-        ]
+-      },
++      "includes": {},
+       "names": [
+         "chroot"
+       ]

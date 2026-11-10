@@ -1,0 +1,49 @@
+uid=1000(node) gid=1001 groups=1001
+PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+NAME="Debian GNU/Linux"
+VERSION_ID="12"
+VERSION="12 (bookworm)"
+VERSION_CODENAME=bookworm
+ID=debian
+HOME_URL="https://www.debian.org/"
+SUPPORT_URL="https://www.debian.org/support"
+BUG_REPORT_URL="https://bugs.debian.org/"
+v24.19.0
+11.17.0
+Version 1.65.0
+@react-pdf/renderer 4.9.0
+pdfmake 0.3.14
+playwright 1.65.0
+LiberationSans-Regular.ttf: "Liberation Sans" "Regular"
+fonts-liberation	1:1.07.4-11
+procps	2:4.0.2-3
+process confinement
+docker-default (enforce)
+CapEff:	0000000000000000
+NoNewPrivs:	1
+Seccomp:	2
+Seccomp_filters:	1
+cgroup limits
+cpu.max=150000 100000
+cpu.weight=59
+cpuset.cpus.effective=0-1
+memory.max=2147483648
+memory.swap.max=0
+pids.max=256
+Filesystem      Size  Used Avail Use% Mounted on
+tmpfs           512M  672K  512M   1% /tmp
+shm             512M     0  512M   0% /dev/shm
+/dev/sda1        75G   35G   38G  48% /bench-out
+network interfaces and routes
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0
+Iface	Destination	Gateway 	Flags	RefCnt	Use	Metric	Mask		MTU	Window	IRTT                                                       
+sandbox verification
+Chromium 158.0.8127.18
+Chromium renderer 120
+NSpid:	120	4	1
+Seccomp:	2
+Seccomp_filters:	2
+Browser arguments ["/opt/pw-browsers/chromium_headless_shell-1254/chrome-headless-shell-linux64/chrome-headless-shell","--disable-field-trial-config","--disable-background-networking","--disable-background-timer-throttling","--disable-backgrounding-occluded-windows","--disable-back-forward-cache","--disable-breakpad","--disable-component-extensions-with-background-pages","--disable-component-update","--no-default-browser-check","--disable-default-apps","--disable-dev-shm-usage","--disable-edgeupdater","--disable-extensions","--disable-features=AvoidUnnecessaryBeforeUnloadCheckSync,DestroyProfileOnBrowserClose,HttpsUpgrades,HttpsFirstBalancedModeAutoEnable,LensOverlay,MediaRouter,PaintHolding,ThirdPartyStoragePartitioning,AvoidCorsURLLoaderRestartOnRedirect,TcpPortRandomizationWin,OptimizationHints,NetworkTimeServiceQuerying,AimEnabled,PreconnectToSearch,msForceBrowserSignIn,msEdgeUpdateLaunchServicesPreferredVersion","--enable-features=CDPScreenshotNewSurface,SkipListAccountsWithoutGaiaCookies","--allow-pre-commit-input","--disable-hang-monitor","--disable-ipc-flooding-protection","--disable-popup-blocking","--disable-prompt-on-repost","--disable-renderer-backgrounding","--disable-updater-scheduler","--force-color-profile=srgb","--metrics-recording-only","--no-first-run","--password-store=basic","--use-mock-keychain","--no-service-autorun","--disable-search-engine-choice-screen","--unsafely-disable-devtools-self-xss-warnings","--enable-unsafe-swiftshader","--edge-skip-compat-layer-relaunch","--disable-stack-profiler","--disable-infobars","--disable-sync","--do-not-de-elevate","--headless","--hide-scrollbars","--mute-audio","--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4","--user-data-dir=/tmp/playwright_chromiumdev_profile-Hhdf8A","--remote-debugging-pipe","--no-startup-window"]
+PASS Docker process filters=1, Chromium renderer filters=2

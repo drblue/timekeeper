@@ -1,0 +1,22 @@
+2026-11-10T21:13:38Z
+timekeeper-pdf-vps-smoke-01a1c539
+timekeeper-pdf-vps-benchmark-01a1c539
+Untagged: timekeeper-pdf-vps:01a1c539
+Deleted: sha256:f2d4eabc52ca4ca9cb06af98a2e1599698894c29e53d80259ff78ae09518ed35
+Untagged: timekeeper-pdf-vps:01a1c539-initial
+Deleted: sha256:9237c9aad3175ae87c26f23325b17f23d38e65fdc3c72708657418f274f46803
+No benchmark container or image remains.
+Removed and verified temporary directory /var/tmp/timekeeper-pdf-vps-01a1c539
+The five existing containers retained their IDs, start times, restart counts and health states.
+568074f8e05cd5c9dfe2c7a604491f62f3fa21c057c178e2affa2ad3c312be1c running 0 2026-11-10T20:59:08.388366601Z none
+b0c692b48f91c8366899a20ccf1cec43dc4d2bbe6ed98f963c1586a92c8bacff running 0 2026-11-10T20:59:03.206982416Z none
+a9b6630c50802ad8636e6e72e6bd4946adbcdef4e099d75657b0c48e18c8860c running 0 2026-11-10T20:59:03.205775365Z healthy
+e95253a46309efc9e31fdc85a13eea3d4580d0b1b4bc7452f03e28bd2f11b29e running 0 2026-11-10T20:59:02.267363387Z none
+990c61521e3e07bd706e10a6d0826b434b06f2e3f399cbcabae0b7e45be56427 running 0 2026-11-10T20:59:02.26815874Z none
+568074f8e05c swapi-app-1 Up 14 minutes
+b0c692b48f91 photo-api-tester Up 14 minutes
+a9b6630c5080 swapi-db-1 Up 14 minutes (healthy)
+e95253a46309 koinsight Up 14 minutes
+990c61521e3e webdav Up 14 minutes
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1        75G   33G   39G  46% /

@@ -29,3 +29,9 @@ At the user's request, the same renderer revision was deployed temporarily to th
 At the user's request, Sol/high agents implemented pdfmake and sandboxed HTML/Chromium prototypes plus a shared fresh-worker benchmark at f6373a1; cancellation cleanup was fixed in 2f20337 after Astra/high review. Terra/high independently validated all 18 Pi PDFs, and Astra/high checked code and measurement reporting. See [the comparison](../pdf-renderer-comparison.md) for complete measurements, the thermal stop and recovered single-run annual comparison, target output provenance and confirmed cleanup.
 
 pdfmake is recommended as the next candidate: it gave the best measured total time and memory use while retaining complete report contents. No production renderer switch was made. Physical x86-64 validation and final renderer acceptance remain open; issue #3 is still open.
+
+## VPS Docker follow-up
+
+The user-authorized Docker comparison on bob.haxx0r.org completed all three suites with three runs per renderer at ddc7184 (renderer/harness unchanged from 2f20337). All 1,041 liveness probes succeeded. Terra/high independently validated all 18 PDFs; Astra/high reviewed isolation and reporting. See [VPS results](../pdf-renderer-vps-comparison.md) for quotas, memory accounting, build-monitoring limitation, raw evidence and cleanup.
+
+pdfmake remains the recommended candidate. The intended VPS has now been tested, but it is KVM x86-64 rather than dedicated physical hardware. Final renderer acceptance and production integration remain separate; no issue closure or renderer switch was performed.

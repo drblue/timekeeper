@@ -1,5 +1,7 @@
 # PDF renderer alternatives
 
+Follow-up: [the VPS Docker comparison](pdf-renderer-vps-comparison.md) measures all three renderers on the intended x86-64 VPS.
+
 The earlier 92–109 second Pi measurement was for the 189-page, 3,200-entry annual report, not the six-page detailed report. This comparison measures both workloads explicitly, plus the dense 53-project report. The renderer remains provisional pending the comparison gates and the physical x86-64 test.
 
 ## Candidates and method
