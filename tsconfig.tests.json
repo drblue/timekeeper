@@ -1,0 +1,10 @@
+{
+	"extends": "./tsconfig.base.json",
+	"compilerOptions": {
+		"module": "NodeNext",
+		"rewriteRelativeImportExtensions": true,
+		"types": ["node"],
+		"noEmit": true
+	},
+	"include": ["playwright.config.ts", "tests/**/*.ts", "apps/server/test/**/*.ts"]
+}

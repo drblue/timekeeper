@@ -2,7 +2,37 @@
 
 A single-user time-tracking application for recording work, tracking billable amounts and external invoicing, importing Clockify data, and exporting PDF time reports.
 
-The project is currently in design. Application code and deployment are not implemented yet.
+The initial application runs the browser interface and its liveness API from one Fastify process. Time tracking, persistence, account access, browser installation, and deployment are planned in the product specification.
+
+## Run locally
+
+Use Node.js 24.19.0 and npm 11.17.0. If you use nvm, run `nvm install` and `nvm use` from the repository root.
+
+```sh
+npm ci
+npm run build
+npm start
+```
+
+Open [Timekeeper](http://127.0.0.1:3000) and select **Check connection** to repeat the same-origin API request. The production process serves the compiled web files from `apps/web/dist`. Set `HOST` and `PORT` to override the defaults of `127.0.0.1` and `3000`.
+
+For development, run `npm run dev:server` and `npm run dev:web` in separate terminals. Open [the Vite development server](http://127.0.0.1:5173). Vite forwards API requests to the local Fastify process. If you change `PORT`, use the same value in both terminals. Restart the development server after editing the shared contracts to rebuild that workspace.
+
+## API
+
+- `GET /api/v1/health` returns `200` with `{"status":"ok"}` when the API process can serve requests. It accepts no query parameters and has no database or account dependencies.
+- `GET /api/v1/openapi.json` serves the OpenAPI description generated from the Fastify route schemas.
+
+TypeBox defines shared JSON Schema and TypeScript types in `packages/contracts`. Fastify validates incoming requests and validates schema-defined responses before sending JSON. Structured errors include `code`, `message`, and a server-generated `requestId`, plus `fieldErrors` for request validation failures.
+
+## Checks
+
+```sh
+npx playwright install chromium --only-shell
+npm run check
+```
+
+Run `npm run typecheck`, `npm test`, or `npm run test:e2e` individually. The browser tests build and start the production service and verify the connection and recovery flow in desktop and phone viewports. The smoke test needs local port `4317` available.
 
 ## Documentation
 
