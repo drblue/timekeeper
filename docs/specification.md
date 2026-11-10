@@ -1,7 +1,7 @@
 # Timekeeper — Product Specification
 
-Version: 1.0  
-Date: 2026-11-10  
+Version: 1.1
+Date: 2026-11-10
 Status: Initial specification based on the user-confirmed discovery scope.
 
 ## 1. Purpose and authority
@@ -10,7 +10,7 @@ Timekeeper lets one person record work, understand time spent by client and proj
 
 This document consolidates the approved scope in [discovery.md](discovery.md). It is the implementation-facing product specification; discovery retains the interview history. [GLOSSARY.md](../GLOSSARY.md) defines canonical terms. Requirements below are required for the first release unless explicitly deferred. Acceptance scenarios illustrate required behavior and are not an exhaustive test suite.
 
-This specification does not select a framework, database, authentication library, chart library, or PDF renderer. TypeScript and ESModules are preferred, with tabs for code indentation. Production dependency additions follow the project's working agreements.
+The selected stack is React/Vite, TanStack Router/Query, Node.js/Fastify, and Prisma 7 with SQLite initially. PostgreSQL and MariaDB are required migration targets. React PDF remains provisional until report layout and resource validation. The [technical design](technical-design.md) defines architecture and implementation decisions. Use TypeScript, ESModules, and tabs; production dependency additions follow the project's working agreements.
 
 ## 2. Product boundaries
 
@@ -22,6 +22,7 @@ This specification does not select a framework, database, authentication library
 - Filtered reporting, PDF generation, complete data export, and entry CSV export.
 - Clockify CSV import with preview, repeat-import protection, conflict resolution, and guarded undo.
 - Docker Compose hosting on ARM64 Raspberry Pi 4 and x86-64 Hetzner VPS; backup, restoration, and migration procedures.
+- Initial SQLite persistence with verified transfer paths to PostgreSQL and MariaDB, preserving historical and import-identity data.
 
 ### Excluded
 
@@ -122,7 +123,7 @@ Resolve and store the entry's assigned rate when created from available defaults
 
 Calculate billable amount as recorded seconds divided by 3,600, multiplied by the assigned hourly rate. Do not round duration up to billing increments. Round each full entry amount to öre and sum entry amounts for totals. Use exact monetary calculations rather than accumulating binary floating-point errors.
 
-Allocate an entry's rounded amount consistently across daily portions so their sum equals its full amount. The technical design must define a deterministic rounding/allocation algorithm, reused by list totals, reports, and splitting. A midnight split must preserve total seconds and total rounded amount.
+Allocate an entry's rounded amount consistently across daily portions so their sum equals its full amount. The [technical design](technical-design.md) defines the deterministic rounding/allocation algorithm reused by list totals, reports, and splitting. A midnight split must preserve total seconds and total rounded amount.
 
 ### CLIENT-01 — Lifecycle
 
@@ -229,6 +230,10 @@ Create daily backups with 30-day retention. Support encrypted copies to a destin
 
 Provide a complete data export and filtered entry CSV export. Complete export must preserve relationships and import identities, not merely visible entry fields. Keep secrets out of ordinary user-facing exports. Document the distinction between portable export and operational backup.
 
+### OPS-04 — Database migration targets
+
+Support a planned transfer from SQLite to PostgreSQL or MariaDB with provider-specific schemas/migrations and preserved IDs, relationships, amounts, daily allocations, invoice metadata, history, import identities/tombstones, and undo information. Validate data and behavior against real target databases before cutover. Preserve a rollback source and document the boundary after which new target writes require reconciliation. Changing the database URL alone is not a supported migration procedure.
+
 ## 12. Acceptance scenarios
 
 | ID | Scenario and required result |
@@ -255,6 +260,8 @@ Provide a complete data export and filtered entry CSV export. Complete export mu
 | A20 | Undo an eligible import: created entries go to trash, unchanged updates revert, clients/projects remain, and explicit reimport is possible. |
 | A21 | Open a stale edit after another device changes it: show conflict/refresh instead of overwriting newer data. |
 | A22 | Restore a backup on a supported host: entries, rates, invoice metadata, history, settings, and repeat-import protection survive. |
+| A23 | Transfer a populated SQLite fixture to PostgreSQL: IDs, relationships, seconds, amounts, allocations, history, invoice states, and import behavior match. |
+| A24 | Repeat that transfer to MariaDB and verify the same invariants, including Unicode/case-sensitive grouping and transactional conflict behavior. |
 
 Use synthetic or sanitized fixtures for automated tests; do not commit the user's raw Clockify export. Verify PDF layout visually with empty, dense, long-description, multi-page, and long-range reports. Verify the primary workflows on desktop and phone layouts. Validate both target deployment architectures before declaring hosting support complete.
 
@@ -262,8 +269,8 @@ Use synthetic or sanitized fixtures for automated tests; do not commit the user'
 
 The following choices are intentionally left to technical design or deployment planning:
 
-- Application framework, database, authentication implementation, chart/PDF tools, and exact schema/API.
-- Deterministic monetary rounding/allocation method satisfying BILL-02.
+- Exact compatible dependency versions and remaining authentication/schema/date-time helper choices described in the technical design.
+- Final PDF renderer selection: React PDF is provisional until the documented report-layout and resource gate passes.
 - Separate encrypted backup destination and key management/recovery procedure.
 - Production domain, reverse-proxy configuration, and remote-access arrangement.
 
