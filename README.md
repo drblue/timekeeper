@@ -34,6 +34,8 @@ npm run check
 
 Run `npm run typecheck`, `npm test`, or `npm run test:e2e` individually. The browser tests build and start the production service and verify the connection and recovery flow in desktop and phone viewports. The smoke test needs local port `4317` available.
 
+Run `npm run test:persistence` with local Docker Compose to check the persisted-data fixture against SQLite, PostgreSQL, and MariaDB. Run `npm run test:persistence -- sqlite` for SQLite alone without Docker, or `npm run typecheck:persistence` to check the fixture types. The [portability handoff](docs/hand-offs/issue-2-implementation.md) records the tested versions, database isolation, and architecture checks.
+
 ## Documentation
 
 - [Product specification](docs/specification.md): agreed behavior and acceptance scenarios.
