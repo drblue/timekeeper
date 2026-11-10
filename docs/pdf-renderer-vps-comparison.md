@@ -1,6 +1,6 @@
 # PDF renderer comparison on the VPS
 
-This follow-up runs the same renderer fixtures and comparison harness as the [Pi evaluation](pdf-renderer-comparison.md) inside a temporary Docker container on the user-authorized VPS, bob.haxx0r.org. It tests x86-64 deployment under Docker on the actual intended VPS. This is a KVM virtual machine, not dedicated physical x86-64 hardware.
+This follow-up runs the same renderer fixtures and comparison harness as the Pi evaluation inside a temporary Docker container on the user-authorized x86-64 KVM VPS, bob.haxx0r.org, the intended VPS deployment target. [Pi evaluation](pdf-renderer-comparison.md)
 
 The source is ddc7184, whose renderer and harness code is unchanged from 2f20337. Node 24.19.0, npm 11.17.0 and the committed dependency lockfile preserve the Pi comparison versions. The workloads are the six-page detailed report, the dense 53-project report, and the 3,200-entry annual report. Each measured suite requests three fresh processes per renderer with rotating order. All six fixture PDFs per renderer are also retained for content and layout checks.
 
@@ -36,7 +36,7 @@ Measured on 2026-11-10. Times are medians of three runs; memory ranges are sampl
 
 All 1,041 API probes succeeded (139 detailed, 140 dense, 762 annual, including baselines). Maximum observed latency was 26.513 ms. Sampled host available memory stayed at or above 1,757.2 MiB. The container's reported memory peak was 906.25 MiB, with no OOM kills. This cgroup memory figure is distinct from summed process RSS, which double-counts shared pages. The last telemetry sample reported 149 CPU-throttled periods under the quota.
 
-These results reinforce pdfmake as the recommended candidate: lowest total time and sampled memory for each tested workload. The six-page report took about 0.34 seconds total and the full annual report about 1.63 seconds. Production integration and final acceptance remain separate; this evaluation does not change the app's renderer automatically.
+pdfmake had the lowest total time and sampled memory for each workload. The six-page report took about 0.34 seconds total and the full annual report about 1.63 seconds. The user accepted pdfmake based on these results and the Pi measurements. [Renderer decision](adr/0002-pdfmake-for-time-reports.md)
 
 ## Independent validation and cleanup
 
@@ -46,4 +46,4 @@ Astra/high independently reviewed the isolation setup and measurement reporting.
 
 Cleanup removed both temporary test containers, both temporary image tags and the staging directory. The five existing containers retained their IDs, start times, restart counts and Docker health states. No host packages or service settings changed. Shared Docker build cache was retained; no broad prune was performed. Those checks establish service continuity at the container level, not application-level response-time guarantees.
 
-The requested x86-64 VPS/Docker evaluation is complete. The earlier documentation's dedicated physical x86-64 gate is not literally met by a KVM VPS; this distinction should be resolved when accepting the renderer, rather than claiming a physical-server measurement. Issue #3 remains open and no production renderer switch is included here.
+The VPS and Pi evidence completes the target evaluation for [issue #3](https://github.com/drblue/timekeeper/issues/3). Production integration is tracked in [issue #18](https://github.com/drblue/timekeeper/issues/18).

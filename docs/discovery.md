@@ -102,7 +102,7 @@ The supplied Clockify CSV contains 29 entries and no stable entry IDs, rates, cu
 
 ## Discovery status
 
-All six interview rounds have been answered. The user confirmed the consolidated scope and requested the specification. The implementation-facing requirements are now in [specification.md](specification.md). No application implementation has started. The user subsequently selected React/Vite, TanStack Router/Query, Node.js/Fastify, and Prisma 7 with SQLite initially, with PostgreSQL and MariaDB as migration targets. React PDF remains provisional pending layout/resource validation. See [technical-design.md](technical-design.md) and [ADR 0001](adr/0001-prisma-and-portable-persistence.md).
+All six interview rounds have been answered. The user confirmed the consolidated scope and requested the specification. The implementation-facing requirements are now in [specification.md](specification.md). No application implementation has started. The user subsequently selected React/Vite, TanStack Router/Query, Node.js/Fastify, and Prisma 7 with SQLite initially, with PostgreSQL and MariaDB as migration targets. React PDF was the provisional choice at the end of discovery. Subsequent layout and resource evaluation led to the acceptance of pdfmake. [Renderer decision](adr/0002-pdfmake-for-time-reports.md) See [technical-design.md](technical-design.md) and [ADR 0001](adr/0001-prisma-and-portable-persistence.md).
 
 ## Explicitly deferred deployment choices
 

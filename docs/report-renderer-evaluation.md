@@ -1,8 +1,6 @@
 # Report renderer evaluation
 
-A subsequent [comparison of pdfmake and HTML/Chromium](pdf-renderer-comparison.md) evaluates alternatives on the same Pi, including the actual six-page workload. The 92–109 second results below are for the 189-page annual report.
-
-React PDF 4.9.0 rendered the six synthetic fixtures with the expected A4 layout and report data on an Apple Silicon Mac and a physical Raspberry Pi 4. Pi measurements are recorded below. Keep the renderer provisional pending physical x86-64 measurements and the final resource-budget decision. If either target fails the layout or resource gate, evaluate HTML-to-PDF with the same report data, fixtures, and API probe, including the browser's resource use. See [technical design §9](technical-design.md#9-reports-and-provisional-react-pdf-gate).
+This baseline records React PDF 4.9.0 rendering six synthetic fixtures on an Apple Silicon Mac and a physical Raspberry Pi 4. The 92–109 second results below cover the 189-page annual report. The subsequent comparisons include the six-page workload and led to the acceptance of pdfmake. [Pi comparison](pdf-renderer-comparison.md), [VPS comparison](pdf-renderer-vps-comparison.md), [renderer decision](adr/0002-pdfmake-for-time-reports.md)
 
 ## Reproduce the samples
 
@@ -105,6 +103,6 @@ Independent validation with gpt-6.1-terra (high reasoning) checked A4 geometry, 
 
 The temporary directory containing the isolated runtime and checkout was removed after fetching the evidence. [Cleanup verification](evidence/pdf-pi4/cleanup.txt) found no processes rooted in that temporary directory and confirmed the seven pre-existing containers remained running. No system runtime, cooling configuration, or existing service configuration was changed.
 
-## Remaining hardware gate
+## Subsequent target evaluation
 
-The physical Pi 4 run is complete and its thermal limitations are documented. The physical x86-64 benchmark and target-output inspection remain open. Run both benchmark commands there and record model, architecture, OS, runtime, available RAM, storage, other workloads and raw JSON. Use that evidence alongside the Pi results to set production worker limits and make the final renderer decision. React PDF remains provisional; successful local and Pi runs do not close issue #3 by themselves.
+The subsequent comparisons measured all three renderers on the Pi 4 and the intended x86-64 KVM VPS. Use those measurements to inform the production worker limits for pdfmake. [Technical design §9](technical-design.md#9-reports-and-pdf-rendering)

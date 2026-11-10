@@ -1,7 +1,7 @@
 # Timekeeper — Technical Design
 
 Date: 2026-11-10
-Status: Design baseline; not implemented or performance-validated.
+Status: Design baseline with renderer feasibility validated on both deployment targets.
 
 ## 1. Decisions and scope
 
@@ -15,7 +15,7 @@ This design implements [the product specification](specification.md). The produc
 | API | Node.js supported LTS and Fastify | Selected |
 | Persistence | Prisma 7 with SQLite initially | Selected; exact compatible releases pinned during setup |
 | Migration targets | PostgreSQL and MariaDB | Preserve portability; actual transfer tools/rehearsals are optional, very-low-priority future work |
-| PDF renderer | Server-side React PDF (`@react-pdf/renderer`) | Provisional until the layout and resource gate in section 9 passes |
+| PDF renderer | Server-side pdfmake 0.3.14 | Accepted after the Pi 4 and x86-64 VPS comparison. [ADR 0002](adr/0002-pdfmake-for-time-reports.md) |
 | Tests | Vitest and Playwright | Selected |
 | Hosting | Docker Compose, ARM64 and x86-64, HTTPS reverse proxy | Selected; proxy/domain details deferred |
 | Future native clients | Same API; evaluate Tauri for desktop and Capacitor/Tauri or native UI for iOS | Direction only; no native runtime selected |
@@ -37,7 +37,7 @@ flowchart LR
 	Domain --> Repo[Prisma persistence modules]
 	Repo --> DB[(SQLite initially)]
 	Domain --> Report[Immutable report data]
-	Report --> Worker[PDF render worker - renderer provisional]
+	Report --> Worker[PDF render worker with pdfmake]
 ```
 
 Proposed repository layout (directories are created during implementation):
@@ -205,15 +205,15 @@ Separate parsing, canonicalization, matching, review, and commit. Preserve sourc
 
 Use synthetic versions of the supplied structure for committed fixtures. Preserve source payloads in protected import data, not logs. Import cancellation/parse failure creates no work entries. The staged preview can be discarded independently of committed import history.
 
-## 9. Reports and provisional React PDF gate
+## 9. Reports and PDF rendering
 
 A single report builder accepts normalized filters and produces immutable, renderer-independent `ReportData`: scope, language, totals, day series, project shares, description summaries, optional details, and display settings. Read all report inputs within a consistent database snapshot and release it before rendering. Use a read transaction with provider-appropriate snapshot isolation; do not issue unrelated reads that could observe different revisions. Future edits do not mix old totals with new rows inside a report already being generated.
 
 The entry-list summary uses the same allocation/grouping helpers. Report money is integer öre and durations are seconds until display formatting. Pie percentages derive from total duration, with explicit zero-total handling. Distinguish project IDs even when names match.
 
-Expose a renderer interface that accepts `ReportData` and produces PDF bytes. React PDF is the candidate, not a dependency of domain or query code. It provides server rendering and SVG primitives; this does not establish that our layout is satisfactory. [React PDF Node API](https://react-pdf.org/node), [SVG primitives](https://react-pdf.org/svg).
+Use pdfmake 0.3.14 behind a server-side renderer interface that accepts `ReportData` and produces PDF bytes. Keep renderer dependencies out of domain and query code. Integrate the production dependency and adapter when implementing PDF jobs and downloads in [issue #18](https://github.com/drblue/timekeeper/issues/18).
 
-### Prototype required before renderer acceptance
+### Layout and resource verification
 
 Produce and visually inspect actual A4 PDFs for:
 
@@ -225,7 +225,7 @@ Produce and visually inspect actual A4 PDFs for:
 
 Pass criteria: no clipping, overlap, missing projects, incorrect totals, lost headers, or unreadable daily bars; right-hand chart-page legend and explicit continuation; selectable text and sharp vector charts where applicable. Compare extracted numerical totals against `ReportData`, and inspect rendered pages rather than only checking file creation.
 
-Measure render time, peak memory, and API responsiveness on an actual Pi 4 with recorded RAM/storage/other workloads and on x86-64. Physical Pi 4 measurements and their active-throttling limitations are now recorded in the [renderer evaluation](report-renderer-evaluation.md); physical x86-64 measurements and final renderer acceptance remain open. Record the samples and measured results in a report-renderer evaluation before accepting React PDF. If it fails, evaluate an HTML-to-PDF renderer behind the same interface, including its browser resource cost; do not quietly weaken layout requirements.
+Renderer feasibility was verified on the physical ARM64 Pi 4 and the intended x86-64 KVM VPS under Docker. Use these measurements to set production worker limits and repeat the layout and resource checks against the integrated job path. The benchmark's API probe measured loopback liveness without database load. [Pi comparison](pdf-renderer-comparison.md), [VPS comparison](pdf-renderer-vps-comparison.md)
 
 PDF generation runs in a worker process with concurrency one initially, not on the API request event loop. Use database-backed job state, bounded work admission, and a configurable timeout. Jobs return 202 with an ID; the browser polls for completion and downloads an authorized artifact. Recover interrupted jobs on startup using immutable inputs. Expire temporary artifacts without deleting source work or report reproducibility inputs needed for active jobs. No Redis is required initially.
 
@@ -284,7 +284,7 @@ The stack and architecture above are selected; the following are deliberately no
 
 - Exact compatible package/Node/database versions, runtime schema helper, date-time library, password/session package and timeout policy.
 - UI component/styling system; it must support responsive forms and accessible controls without coupling domain rules to components.
-- React PDF acceptance, worker resource limits, and job/upload limits, informed by the prototype and hardware measurements.
+- PDF worker resource limits and job/upload limits, informed by the prototype and target measurements.
 - HTTPS proxy product/configuration, domain and remote access, external backup tool/destination and key recovery.
 - Native desktop/iOS packaging and authentication, deferred until that work is scheduled.
 
@@ -295,6 +295,5 @@ Vendor capabilities were checked on 2026-11-10. Revalidate compatibility when pi
 - [Prisma 7 driver adapters](https://www.prisma.io/docs/orm/v7/core-concepts/supported-databases/database-drivers)
 - [Prisma 7 MySQL/MariaDB connector](https://www.prisma.io/docs/orm/v7/core-concepts/supported-databases/mysql)
 - [Prisma provider migration limitations](https://www.prisma.io/docs/orm/v7/prisma-migrate/understanding-prisma-migrate/limitations-and-known-issues)
-- [React PDF server rendering](https://react-pdf.org/node)
-- [React PDF SVG primitives](https://react-pdf.org/svg)
+- [PDF renderer evaluation and decision](adr/0002-pdfmake-for-time-reports.md)
 - [SQLite consistent backup mechanism](https://www.sqlite.org/backup.html)

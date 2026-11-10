@@ -47,7 +47,7 @@ Run `npm run test:persistence` with local Docker Compose to check the persisted-
 
 ## Selected stack
 
-React/Vite with TanStack Router and Query; Node.js/Fastify; Prisma 7 with SQLite initially; Docker Compose for ARM64 Raspberry Pi and x86-64 VPS hosting. Preserve PostgreSQL/MariaDB portability; full transfer tooling is optional future work and must be verified if pursued. React PDF is provisional pending report-layout and resource evaluation. Native desktop/iOS clients remain future work against the same API.
+React/Vite with TanStack Router and Query; Node.js/Fastify; Prisma 7 with SQLite initially; Docker Compose for ARM64 Raspberry Pi and x86-64 VPS hosting. Preserve PostgreSQL/MariaDB portability; full transfer tooling is optional future work and must be verified if pursued. Server-side pdfmake is selected for PDF reports. Native desktop/iOS clients remain future work against the same API. [PDF renderer decision](docs/adr/0002-pdfmake-for-time-reports.md)
 
 ## Agent workflow
 

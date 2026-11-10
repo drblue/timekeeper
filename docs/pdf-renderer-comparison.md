@@ -1,8 +1,8 @@
 # PDF renderer alternatives
 
-Follow-up: [the VPS Docker comparison](pdf-renderer-vps-comparison.md) measures all three renderers on the intended x86-64 VPS.
+pdfmake was accepted following this Pi comparison and the Docker comparison on the intended x86-64 VPS. [VPS comparison](pdf-renderer-vps-comparison.md), [renderer decision](adr/0002-pdfmake-for-time-reports.md)
 
-The earlier 92–109 second Pi measurement was for the 189-page, 3,200-entry annual report, not the six-page detailed report. This comparison measures both workloads explicitly, plus the dense 53-project report. The renderer remains provisional pending the comparison gates and the physical x86-64 test.
+The earlier 92–109 second Pi measurement covered the 189-page, 3,200-entry annual report. This comparison measures the annual report, the six-page detailed report and the dense 53-project report.
 
 ## Candidates and method
 
@@ -66,11 +66,9 @@ After the host cooled to 82.776°C, a separate **single run per alternative** co
 
 All 936 probes including baseline succeeded; maximum latency was 69.46 ms. Peak temperature was 87.159°C and minimum available memory was 1,353.8 MiB. Whole-host swap counters did not increase in this phase. These single samples support the direction of the small-report result, but do not establish variance or a precise speedup over React PDF.
 
-## Recommendation
+## Pi findings
 
-Prefer **pdfmake as the next renderer candidate** for this app. It has the best measured total time and memory use of the tested alternatives, preserves the complete fixture data, and avoids browser deployment dependencies. Keep the ReportData boundary so this choice does not affect reporting calculations or data access. HTML/Chromium remains a viable alternative if future requirements demand HTML/CSS layout fidelity, but its measured resource use is harder to justify on this Pi.
-
-This is an evaluation recommendation, not production integration or final acceptance. The physical x86-64 gate remains open, along with setting production worker budgets and checking fonts beyond the English/Swedish fixtures. The React PDF production choice has not been silently replaced.
+pdfmake had the shortest total worker time and lowest sampled process-tree memory in the detailed and dense comparisons. It also led Chromium on both measures in the recovered annual run. It preserved the complete fixture data and avoids browser deployment dependencies. Production integration, worker budgets and font coverage for production report data are tracked in [issue #18](https://github.com/drblue/timekeeper/issues/18).
 
 ## Target validation and cleanup
 

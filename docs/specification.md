@@ -10,7 +10,7 @@ Timekeeper lets one person record work, understand time spent by client and proj
 
 This document consolidates the approved scope in [discovery.md](discovery.md). It is the implementation-facing product specification; discovery retains the interview history. [GLOSSARY.md](../GLOSSARY.md) defines canonical terms. Requirements below are required for the first release unless explicitly deferred. Acceptance scenarios illustrate required behavior and are not an exhaustive test suite.
 
-The selected stack is React/Vite, TanStack Router/Query, Node.js/Fastify, and Prisma 7 with SQLite initially. PostgreSQL and MariaDB remain architectural migration targets; implementing their transfer tooling is optional, very-low-priority future work, not an initial-release requirement. React PDF remains provisional until report layout and resource validation. The [technical design](technical-design.md) defines architecture and implementation decisions. Use TypeScript, ESModules, and tabs; production dependency additions follow the project's working agreements.
+The selected stack is React/Vite, TanStack Router/Query, Node.js/Fastify, Prisma 7 with SQLite initially, and pdfmake for server-side PDF rendering. PostgreSQL and MariaDB remain architectural migration targets. Implementing their transfer tooling is optional, very-low-priority future work. Use TypeScript, ESModules, and tabs. Production dependency additions follow the project's working agreements. [Technical design](technical-design.md), [PDF renderer decision](adr/0002-pdfmake-for-time-reports.md)
 
 ## 2. Product boundaries
 
@@ -270,7 +270,6 @@ Use synthetic or sanitized fixtures for automated tests; do not commit the user'
 The following choices are intentionally left to technical design or deployment planning:
 
 - Exact compatible dependency versions and remaining authentication/schema/date-time helper choices described in the technical design.
-- Final PDF renderer selection: React PDF is provisional until the documented report-layout and resource gate passes.
 - Separate encrypted backup destination and key management/recovery procedure.
 - Production domain, reverse-proxy configuration, and remote-access arrangement.
 
