@@ -46,7 +46,7 @@ A client or project retained for historical work and reporting but hidden from n
 A saved record of work that lacks information required for completion. It is excluded from reports and invoice marking until completed.
 
 **Invoice reference**:
-An optional identifier linking invoiced work to an invoice created outside Timekeeper.
+An optional additional note attached to invoiced work, separate from the invoice number used to locate the invoice.
 
 **Invoice number**:
 The identifier assigned to an invoice in external bookkeeping software, recorded to make that invoice easy to locate.

@@ -102,7 +102,7 @@ The supplied Clockify CSV contains 29 entries and no stable entry IDs, rates, cu
 
 ## Discovery status
 
-All six interview rounds have been answered. The agreed scope is being summarized for user confirmation before drafting the specification. No application implementation has started. Technology choices beyond TypeScript/ESModules preference, Docker Compose, supported host architectures, and browser delivery are not yet selected.
+All six interview rounds have been answered. The user confirmed the consolidated scope and requested the specification. The implementation-facing requirements are now in [specification.md](specification.md). No application implementation has started. Technology choices beyond TypeScript/ESModules preference, Docker Compose, supported host architectures, and browser delivery are not yet selected.
 
 ## Explicitly deferred deployment choices
 
