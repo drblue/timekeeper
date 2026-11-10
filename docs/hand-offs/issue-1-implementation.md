@@ -37,4 +37,4 @@ Malformed URLs now return HTTP 400, a sanitized `ApiErrorResponse`, independentl
 
 The coordinator accepted issue #1's code after both independent gates passed. Scope remains the initial app/API connection; hardware deployment, persistence, authentication, actual mobile-device behavior and other browser engines are not established by these tests. Browser evidence is automated Chromium at desktop/phone viewports, not a visual design approval.
 
-Changes are committed on `dev`. This session did not push commits, create a PR, comment on the GitHub issue, or close it. The next coordination step is to publish/close the completed ticket when authorized, then select issue #2 or #3 once tracker blockers are resolved.
+Follow-up: at the user’s explicit request, the accepted commits through `8af4780` were pushed to `origin/dev` and issue #1 was closed as completed before issue #2 began. GitHub reported no remaining open blockers on issue #2.
