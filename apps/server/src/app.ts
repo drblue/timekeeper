@@ -23,6 +23,9 @@ export async function createApp({ webRoot, logger = false }: AppOptions = {}) {
 		logger,
 		requestIdHeader: false,
 		genReqId: () => randomUUID(),
+		frameworkErrors(error, request, reply) {
+			reply.server.errorHandler(error, request, reply);
+		},
 		ajv: {
 			customOptions: {
 				removeAdditional: false,

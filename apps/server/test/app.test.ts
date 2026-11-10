@@ -58,6 +58,23 @@ describe('Timekeeper API', () => {
 		expect(response.body).not.toContain('do not disclose');
 	});
 
+	it('rejects a malformed API path with a structured error', async () => {
+		const response = await app.inject({
+			method: 'GET',
+			url: '/api/v1/%private-data',
+			headers: { 'request-id': 'supplied-by-client' },
+		});
+
+		expect(response.statusCode).toBe(400);
+		expect(response.headers['content-type']).toMatch(/^application\/json/);
+		expect(response.headers['cache-control']).toBe('no-store');
+		expect(response.json()).toEqual({
+			code: 'REQUEST_REJECTED',
+			message: 'The server rejected the request.',
+			requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+		});
+	});
+
 	it('publishes the response and error schemas from the liveness route', async () => {
 		const response = await app.inject({ method: 'GET', url: '/api/v1/openapi.json' });
 
