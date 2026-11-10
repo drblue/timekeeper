@@ -40,10 +40,27 @@ This document records confirmed requirements during the interview. It is not the
 - Invoiced entries cannot be edited until explicitly marked not invoiced. The not-yet-invoiced filter excludes non-billable entries; all entries and billability filters keep those accessible.
 - Archive clients/projects with entries instead of deleting them. Archived records remain available in historical filters/reports but are hidden from normal new-work choices. Projects with entries cannot move to another client.
 
+## Confirmed interview decisions — round 3
+
+- Reports include only the portion of timed entries inside the selected date range and its corresponding amount. Allocate monetary rounding differences consistently so daily portions sum to the full entry amount.
+- Bulk invoice marking flags entries crossing the selected date range and offers splitting at midnight before marking the included portion. Splitting preserves total duration and amount.
+- Reassigning an uninvoiced entry to a project/client asks whether to retain its rate or use the new default, defaulting to retention. Description/duration edits do not change rates.
+- Continuing old work copies billing settings exactly. A notice offers the current default when the copied rate differs from it.
+- Deleted entries are recoverable from trash for 30 days. Invoiced entries must first be unmarked; bulk deletion requires confirmation.
+- Stopping a timer without a description saves an incomplete entry, excluded from reports and invoice marking until completed. Unusually long timers are flagged without automatic stopping.
+- Devices share the same running timer. Starting/stopping requires server confirmation; connection loss clearly indicates unsaved actions. Conflicting edits prompt refresh rather than silently overwriting work.
+- Start with one administrator-created email/password account, no public registration or email service. Include logout, password changes, login attempt limits, a documented server-side password-reset procedure, and HTTPS for remote access.
+- Include daily backups retained for 30 days, support for a separate backup destination, documented restore and Pi-to-VPS migration, and complete data export plus entry CSV export. Backup destination remains open.
+- Initially use an English interface with Swedish date/currency formatting, 24-hour time, Monday-first weeks, and SEK. PDFs independently support English or Swedish labels.
+- PDFs use A4 portrait with title, configurable owner/business name, optional logo, selected client/project, date range, total hours, charts, and description summaries. Include page numbers, repeated table headers, and an optional detailed-entry appendix.
+- Main screen defaults to the current week and all invoice statuses. Show a prominent timer, filtered hours and billable totals, and entries newest first grouped by day. Date shortcuts: Today, This week, This month, Previous month, Custom range.
+- Projects have an overridable billability default inherited by entries. New projects and direct-client work default to billable; work without a client/project defaults to non-billable. Make billability visible during entry.
+
 ## Remaining discovery areas
 
-- Editing, reassignment, rate refresh, and deleting entries.
-- Partial date-range reporting and invoice marking across midnight.
-- Timer interruptions, simultaneous devices, and incomplete work.
-- Login, backup, recovery, and deployment.
-- Report presentation, language, and default views.
+- Incomplete-entry validation and long-timer threshold.
+- Invoice references, history, and bulk-action boundaries.
+- Project/client naming and settings needed by reports.
+- Longer report ranges and filter consistency.
+- Backup destination and deployment access.
+- Installability, initial data, and scope confirmation.

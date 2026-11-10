@@ -41,3 +41,9 @@ A time entry assigned to a date and duration without start or end times.
 
 **Archived client or project**:
 A client or project retained for historical work and reporting but hidden from normal choices for new work.
+
+**Incomplete entry**:
+A saved record of work that lacks information required for completion. It is excluded from reports and invoice marking until completed.
+
+**Invoice reference**:
+An optional identifier linking invoiced work to an invoice created outside Timekeeper.
