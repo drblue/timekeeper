@@ -88,12 +88,21 @@ This document records confirmed requirements during the interview. It is not the
 
 The supplied Clockify CSV contains 29 entries and no stable entry IDs, rates, currency, billable flag, or timezone. Twelve entries carry the invoiced tag. It uses comma-delimited UTF-8, DD/MM/YYYY dates, HH:mm:ss times/durations, and rounded decimal hours. All sample durations agree with their timestamp intervals. These observations describe the sample, not every possible Clockify export.
 
-## Remaining discovery areas
+## Confirmed interview decisions — round 6
 
-- Daylight-saving behavior and ordinary-entry correction rules.
-- Import ambiguity, repeated identical source rows, and undo boundaries.
-- Report pagination and dense chart presentation.
-- Final shared-understanding and specification approval.
+- Timed entries measure actual elapsed time across daylight-saving changes. Manual ambiguous timestamps require explicit occurrence selection; nonexistent local times are rejected. Duration-only entries are unaffected.
+- Uninvoiced entries may convert between timed and duration-only forms while preserving description, billing settings, and history. Conversion to timed requires explicit timestamps. Preview duration/amount changes before saving.
+- Identical rows within an export are flagged and default to one import, with an explicit option to keep both. Retain this choice so repeat imports do not duplicate either entry.
+- Import conflict resolution offers keep existing, update existing, or import separately, with a difference preview. Updates preserve local billing information absent from CSV and respect invoice-editing restrictions. Remember resolutions for repeat imports.
+- Undoing an import moves newly created entries to trash and retains client/project records. Existing entries updated by that batch may revert only when unchanged since. Explicit import undo permits reimport; ordinary deletion continues to prevent accidental reimport.
+- Missing import descriptions or rates may be supplied in preview or explicitly accepted as incomplete work. This refines the earlier validation rule: malformed data blocks rows, while explicitly accepted missing completion fields can be retained safely.
+- Reports retain every project rather than merging small shares into Other. Use numbered/color-coded legends with explicitly labeled continuation pages as needed; the chart-page legend stays right of the pie. Use sufficient precision to avoid labeling nonzero shares 0%.
+- List totals include completed entries only, consistent with reports. Running and incomplete work have separate indicators.
+- Preserve filters, sorting, and list position during navigation/editing. Fresh sessions start on the current week. Report creation inherits current list filters, adjustable before export.
+
+## Discovery status
+
+All six interview rounds have been answered. The agreed scope is being summarized for user confirmation before drafting the specification. No application implementation has started. Technology choices beyond TypeScript/ESModules preference, Docker Compose, supported host architectures, and browser delivery are not yet selected.
 
 ## Explicitly deferred deployment choices
 
