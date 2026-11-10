@@ -71,12 +71,29 @@ This document records confirmed requirements during the interview. It is not the
 - Include description search. Expenses, budgets, recurring entries, tags, and external integrations remain outside initial scope, except the explicitly requested Clockify import.
 - Support importing Clockify CSV exports. Reimporting previously imported entries must not create duplicates. A user-provided 2025 export is the sample input; mapping and identity behavior are being investigated before specification.
 
+## Confirmed interview decisions — round 5
+
+- Invoice number is the main searchable external bookkeeping identifier; reference remains an optional note. Invoice numbers are text, preserving prefixes and leading zeros, and may be shared by entries.
+- Imports require a preview and explicit confirmation, showing new entries, previously imported entries, conflicts, invalid rows, and clients/projects to create.
+- Interpret the sample export in Europe/Stockholm time, with an adjustable timezone shown during import. Prefer exact Duration (h) over rounded decimal hours. Flag timestamp/duration disagreements and ambiguous daylight-saving times.
+- Map the invoiced tag to invoiced status and blank tags to not yet invoiced, visibly in the preview. Imported invoiced entries need no invoice number/date; these may be added later.
+- Require historical rate assignment or explicit non-billable classification for imports without rates, including invoiced records. Support bulk assignment by client/project and per-entry overrides. Do not silently apply present defaults or zero.
+- Suggest client matches by name and project matches by name within client. Confirm matches, approve creation of missing records, and resolve ambiguous names explicitly. Imported historical rates do not change defaults automatically.
+- Retain source identity separately from editable entries. Skip identical previously imported source rows across renamed files and overlapping exports, even after local edits. Same user/start/end with different other fields is a possible correction requiring review. Changed timestamps cannot always be matched without stable source IDs.
+- Retain import identities after deletion so repeat imports do not resurrect entries. Offer explicit restoration where possible. Conflicts never silently overwrite existing records; invoiced corrections require unmarking first.
+- Preserve Clockify tags, task, user/email, and creation date as source information without introducing full tag/task management. Invoiced tags additionally map to invoice status. Multi-user exports require explicit user selection.
+- Invalid unresolved rows block import by default; explicitly excluding them permits valid rows to proceed. Apply each approved selection atomically. Keep import history with counts/outcomes. Allow undo of a batch when its entries have not subsequently been edited or newly marked invoiced.
+
+## Sample export observations
+
+The supplied Clockify CSV contains 29 entries and no stable entry IDs, rates, currency, billable flag, or timezone. Twelve entries carry the invoiced tag. It uses comma-delimited UTF-8, DD/MM/YYYY dates, HH:mm:ss times/durations, and rounded decimal hours. All sample durations agree with their timestamp intervals. These observations describe the sample, not every possible Clockify export.
+
 ## Remaining discovery areas
 
-- Clockify field mapping, identity, repeated imports, and correction handling.
-- Invoice number semantics and entry eligibility.
-- Import preview, recovery, and unsupported data.
-- Final scope and shared-understanding confirmation.
+- Daylight-saving behavior and ordinary-entry correction rules.
+- Import ambiguity, repeated identical source rows, and undo boundaries.
+- Report pagination and dense chart presentation.
+- Final shared-understanding and specification approval.
 
 ## Explicitly deferred deployment choices
 
