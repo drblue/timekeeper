@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en" data-type="software">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#f6f8f4">
+	<meta name="page-type" content="software">
+	<meta name="site-kind" content="software">
+	<meta name="description" content="Try the manual time entry form in Timekeeper.">
+	<title>New time entry · Timekeeper</title>
+	<style>
+		:root {
+			font-family: system-ui, sans-serif;
+			font-synthesis: none;
+			color: #172c27;
+			background: #f6f8f4;
+			--accent: #246251;
+			--muted: #4a6058;
+			--border: #d9e3d9;
+			--field-border: #859b90;
+			--surface: #fff;
+			--selected: #e9f3ed;
+			--error: #88272b;
+			--radius: 0.5rem;
+			--ease: cubic-bezier(.2,.8,.2,1);
+		}
+		*, *::before, *::after { box-sizing: border-box; }
+		[hidden] { display: none !important; }
+		body { margin: 0; }
+		button, input, select, textarea { font: inherit; }
+		:where(button, input, select, textarea, a):focus-visible {
+			outline: 2px solid var(--accent);
+			outline-offset: 3px;
+		}
+		.skip {
+			position: absolute;
+			inset: 0.75rem auto auto 0.75rem;
+			transform: translateY(-200%);
+			z-index: 1;
+			padding: 0.75rem;
+			color: var(--accent);
+			background: var(--surface);
+		}
+		.skip:focus { transform: none; }
+		.wrap { width: min(51rem, calc(100% - 2rem)); margin-inline: auto; }
+		.site-header { border-bottom: 1px solid var(--border); background: var(--surface); }
+		.header-row, .brand, .preview-controls, .example-controls {
+			display: flex;
+			align-items: center;
+		}
+		.header-row { justify-content: space-between; min-height: 4.5rem; gap: 1rem; }
+		.brand { gap: 0.6rem; font-weight: 700; letter-spacing: -0.02em; }
+		.brand svg { color: var(--accent); flex: none; }
+		.preview-controls { gap: 0.55rem; }
+		main { padding-block: clamp(1.75rem, 4vw, 3.25rem) 2.5rem; }
+		.intro { margin-block-end: 1.2rem; }
+		h1 {
+			margin: 0;
+			font-size: clamp(1.9rem, 4.5vw, 2.65rem);
+			line-height: 1.13;
+			letter-spacing: -0.045em;
+		}
+		.intro p { margin: 0.4rem 0 0; }
+		.muted, .hint, .preview-label { color: var(--muted); }
+		.preview-label, .hint { font-size: 0.875rem; line-height: 1.45; }
+		.panel {
+			container-type: inline-size;
+			background: var(--surface);
+			border: 1px solid var(--border);
+			border-radius: 0.85rem;
+		}
+		.form-body { display: grid; gap: 1.15rem; padding: clamp(1rem, 4vw, 1.75rem); }
+		.field { display: grid; gap: 0.35rem; align-content: start; min-width: 0; }
+		label, legend { font-size: 0.875rem; font-weight: 650; }
+		input, select, textarea {
+			width: 100%;
+			min-width: 0;
+			min-height: 3rem;
+			padding: 0.6rem 0.75rem;
+			border: 1px solid var(--field-border);
+			border-radius: var(--radius);
+			background: var(--surface);
+			color: inherit;
+		}
+		input, output { font-variant-numeric: tabular-nums; }
+		textarea { min-height: 4rem; resize: vertical; }
+		input[type="date"] { appearance: none; }
+		[aria-invalid="true"] { border-color: var(--error); }
+		.hint, .error { margin: 0; }
+		.error { color: var(--error); font-size: 0.875rem; line-height: 1.45; }
+		fieldset { min-width: 0; padding: 0; margin: 0; border: 0; }
+		legend { padding: 0; }
+		button, .choice {
+			min-height: 2.75rem;
+			border: 1px solid var(--field-border);
+			border-radius: var(--radius);
+			background: var(--surface);
+			color: var(--accent);
+			font-weight: 650;
+			cursor: pointer;
+			transition: background-color 150ms var(--ease), transform 150ms var(--ease);
+		}
+		button { padding: 0.55rem 0.8rem; }
+		@media (hover: hover) and (pointer: fine) {
+			button:hover, .choice:hover { background: var(--selected); transform: translateY(-1px); }
+		}
+		button:active, .choice:active { transform: translateY(1px) scale(0.985); }
+		button[aria-pressed="true"], .choice:has(:checked) {
+			background: var(--selected);
+			border-color: var(--accent);
+			color: #184a3b;
+		}
+		.choice:has(:focus-visible) { outline: 2px solid var(--accent); outline-offset: 3px; }
+		.mode-options { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem; margin-top: 0.4rem; }
+		.choice { display: flex; align-items: center; gap: 0.55rem; padding-inline: 0.7rem; }
+		.choice input { width: 1rem; min-height: 0; height: 1rem; margin: 0; accent-color: var(--accent); }
+		.choice input:focus-visible { outline: none; }
+		.form-timing {
+			padding: clamp(0.75rem, 3cqi, 1rem);
+			background: #f5f8f4;
+			border: 1px solid var(--border);
+			border-radius: var(--radius);
+		}
+		.time-grid { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 0.8rem 1rem; }
+		#timed-fields { display: grid; gap: 0.9rem; }
+		.timing-context {
+			display: flex;
+			justify-content: space-between;
+			align-items: baseline;
+			flex-wrap: wrap;
+			gap: 0.2rem 0.75rem;
+		}
+		.timing-context .hint:first-child { font-weight: 650; color: inherit; }
+		.example-controls { flex-wrap: wrap; gap: 0.55rem; }
+		.example-controls button { font-size: 0.875rem; }
+		.form-footer {
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			flex-wrap: wrap;
+			gap: 0.7rem 1rem;
+			border-top: 1px solid var(--border);
+			padding: 1rem clamp(1rem, 4vw, 1.75rem);
+		}
+		.primary { min-height: 3rem; padding-inline: 1.1rem; color: #fff; background: var(--accent); border-color: var(--accent); }
+		@media (hover: hover) and (pointer: fine) {
+			.primary:hover { background: #174c3e; }
+		}
+		.status:not(:empty) {
+			margin: 0;
+			padding: 0.9rem clamp(1rem, 4vw, 1.75rem);
+			border-top: 1px solid var(--border);
+			background: #edf5ee;
+			border-radius: 0 0 0.85rem 0.85rem;
+			line-height: 1.45;
+			overflow-wrap: anywhere;
+		}
+		.status:empty { margin: 0; }
+		body[data-preview="phone"] main { width: min(24.375rem, calc(100% - 2rem)); }
+		@container (max-width: 36rem) {
+			.time-grid { grid-template-columns: 1fr; }
+			.form-footer { align-items: stretch; flex-direction: column-reverse; }
+			.form-footer .hint { text-align: center; }
+		}
+		@media (max-width: 36rem) {
+			.preview-controls { display: none; }
+			.header-row { min-height: 3.75rem; }
+		}
+		@media (prefers-reduced-motion: no-preference) {
+			[data-enter] { animation: enter 220ms var(--ease) both; }
+			@keyframes enter { from { transform: translateY(4px); } }
+		}
+		@media (prefers-reduced-motion: reduce) {
+			button, .choice { transition: none; transform: none !important; }
+		}
+	</style>
+</head>
+<body>
+	<a class="skip" href="#main">Skip to entry form</a>
+	<header class="site-header">
+		<div class="wrap header-row">
+			<div class="brand">
+				<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+					<circle cx="12" cy="12" r="8.5"/>
+					<path d="M12 7.5V12l3 1.7"/>
+				</svg>
+				Timekeeper
+			</div>
+			<div class="preview-controls" role="group" aria-label="Preview layout">
+				<span class="preview-label">Preview layout</span>
+				<button type="button" data-layout="desktop" aria-pressed="true">Desktop</button>
+				<button type="button" data-layout="phone" aria-pressed="false">Phone</button>
+			</div>
+		</div>
+	</header>
+	<main class="wrap" id="main">
+		<div class="intro" data-enter>
+			<h1>New time entry</h1>
+			<p class="muted">Record work by duration or by start and end time.</p>
+		</div>
+		<form class="panel app-frame" id="entry" novalidate>
+			<div class="form-body">
+				<div class="field">
+					<label for="description">Description</label>
+					<textarea id="description" required rows="2" aria-describedby="description-error">Prepare workshop materials</textarea>
+					<p class="error" id="description-error" hidden></p>
+				</div>
+				<fieldset>
+					<legend>Entry type</legend>
+					<div class="mode-options">
+						<label class="choice" for="mode-duration">
+							<input type="radio" name="mode" id="mode-duration" value="duration" checked>
+							Duration only
+						</label>
+						<label class="choice" for="mode-timed">
+							<input type="radio" name="mode" id="mode-timed" value="timed">
+							Timed
+						</label>
+					</div>
+				</fieldset>
+				<div class="form-timing">
+					<div id="duration-fields" class="time-grid">
+						<div class="field">
+							<label for="work-date">Work date</label>
+							<input id="work-date" type="date" min="0001-01-01" max="9999-12-31" required aria-describedby="work-date-error">
+							<p class="error" id="work-date-error" hidden></p>
+						</div>
+						<div class="field">
+							<label for="work-duration">Duration</label>
+							<input id="work-duration" type="text" value="00:30:00" required spellcheck="false" aria-describedby="work-duration-hint work-duration-error">
+							<p class="hint" id="work-duration-hint">Hours, minutes, seconds. For example, 1:15:00.</p>
+							<p class="error" id="work-duration-error" hidden></p>
+						</div>
+					</div>
+					<div id="timed-fields" hidden inert>
+						<div class="timing-context">
+							<p class="hint">Stockholm time</p>
+							<p class="hint" id="clock-format">Use 24-hour time, e.g. 09:00 or 09:00:30.</p>
+						</div>
+						<div class="time-grid">
+							<div class="field">
+								<label for="start-date">Start date</label>
+								<input id="start-date" type="date" min="0001-01-01" max="9999-12-31" required aria-describedby="start-date-error">
+								<p class="error" id="start-date-error" hidden></p>
+							</div>
+							<div class="field">
+								<label for="start-time">Start time</label>
+								<input id="start-time" type="text" value="09:00" required spellcheck="false" aria-describedby="clock-format start-rule start-time-error">
+								<p class="error" id="start-time-error" hidden></p>
+								<div class="field" id="start-occurrence-field" hidden>
+									<label for="start-occurrence">Start time occurrence</label>
+									<select id="start-occurrence" aria-describedby="start-occurrence-error"></select>
+									<p class="error" id="start-occurrence-error" hidden></p>
+								</div>
+							</div>
+							<div class="field">
+								<label for="end-date">End date</label>
+								<input id="end-date" type="date" min="0001-01-01" max="9999-12-31" required aria-describedby="end-date-error">
+								<p class="error" id="end-date-error" hidden></p>
+							</div>
+							<div class="field">
+								<label for="end-time">End time</label>
+								<input id="end-time" type="text" value="09:30" required spellcheck="false" aria-describedby="clock-format end-time-error">
+								<p class="error" id="end-time-error" hidden></p>
+								<div class="field" id="end-occurrence-field" hidden>
+									<label for="end-occurrence">End time occurrence</label>
+									<select id="end-occurrence" aria-describedby="end-occurrence-error"></select>
+									<p class="error" id="end-occurrence-error" hidden></p>
+								</div>
+							</div>
+							<div class="field">
+								<label for="timed-duration">Duration</label>
+								<input id="timed-duration" type="text" value="00:30:00" required spellcheck="false" aria-describedby="timed-duration-hint timing-rule timed-duration-error">
+								<p class="hint" id="timed-duration-hint">Hours, minutes, seconds. For example, 1:15:00.</p>
+								<p class="error" id="timed-duration-error" hidden></p>
+							</div>
+						</div>
+						<p class="hint" id="timing-rule">Edit duration to move the end. Edit the end to recalculate duration.</p>
+						<p class="hint" id="start-rule">Changing the start keeps the duration.</p>
+						<div class="example-controls" role="group" aria-label="Timed entry examples">
+							<button type="button" id="example-overnight">Try overnight</button>
+							<button type="button" id="example-clock-change">Try clock change</button>
+						</div>
+					</div>
+				</div>
+				<div class="field">
+					<label for="association">Association</label>
+					<select id="association">
+						<option value="">No client or project</option>
+						<optgroup label="Example projects">
+							<option value="workshops">Workshops (Training studio)</option>
+							<option value="website">Website (Design studio)</option>
+						</optgroup>
+						<optgroup label="Example clients">
+							<option value="training">Training studio</option>
+							<option value="design">Design studio</option>
+						</optgroup>
+					</select>
+				</div>
+			</div>
+			<div class="form-footer">
+				<p class="hint">Preview only. Entries aren’t saved.</p>
+				<button class="primary" type="submit">Preview entry</button>
+			</div>
+			<p id="preview-status" class="status" role="status"></p>
+		</form>
+	</main>
+	<script type="module">
+		const find = (id) => document.getElementById(id);
+		const form = find('entry');
+		const description = find('description');
+		const workDate = find('work-date');
+		const workDuration = find('work-duration');
+		const timedDuration = find('timed-duration');
+		const association = find('association');
+		const status = find('preview-status');
+		const maxDuration = 2_147_483_647;
+		const touchedFields = new Set();
+		const pad = (number) => String(number).padStart(2, '0');
+		const zone = new Intl.DateTimeFormat('en-GB', {
+			timeZone: 'Europe/Stockholm',
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit',
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit',
+			era: 'short',
+			hourCycle: 'h23',
+		});
+		const dateLabel = new Intl.DateTimeFormat('en-GB', {
+			timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric',
+		});
+
+		function readBoundary(name) {
+			return {
+				date: find(name + '-date'),
+				time: find(name + '-time'),
+				occurrence: find(name + '-occurrence'),
+				occurrenceField: find(name + '-occurrence-field'),
+				wall: '',
+			};
+		}
+		const start = readBoundary('start');
+		const end = readBoundary('end');
+		let timed = false;
+		let anchor = 'duration';
+
+		function zonedParts(instant) {
+			const parts = Object.fromEntries(zone.formatToParts(instant).map(({ type, value }) => [type, value]));
+			const year = parts.era === 'BC' ? 1 - Number(parts.year) : Number(parts.year);
+			const date = String(year).padStart(4, '0') + '-' + parts.month + '-' + parts.day;
+			return { date, time: parts.hour + ':' + parts.minute + ':' + parts.second };
+		}
+
+		function validDate(value) {
+			if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000')) return false;
+			const instant = Date.parse(value + 'T00:00:00Z');
+			return Number.isFinite(instant) && new Date(instant).toISOString().slice(0, 10) === value;
+		}
+
+		function readClock(value) {
+			const match = /^(\d{1,2}):([0-5]\d)(?::([0-5]\d))?$/.exec(value.trim());
+			if (!match || Number(match[1]) > 23) return null;
+			return pad(Number(match[1])) + ':' + match[2] + ':' + (match[3] ?? '00');
+		}
+
+		function readDuration(value) {
+			const match = /^(\d{1,6}):([0-5]\d):([0-5]\d)$/.exec(value.trim());
+			if (!match) return { error: 'Enter hours, minutes and seconds, e.g. 1:15:00.' };
+			const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+			if (!seconds) return { error: 'Enter a duration greater than zero.' };
+			if (seconds > maxDuration) return { error: 'Enter a shorter duration.' };
+			return { seconds };
+		}
+
+		function durationLabel(seconds) {
+			return [
+				pad(Math.floor(seconds / 3600)),
+				pad(Math.floor(seconds / 60) % 60),
+				pad(seconds % 60),
+			].join(':');
+		}
+
+		function possibleInstants(date, time) {
+			const wall = date + 'T' + time;
+			const utc = Date.parse(wall + 'Z');
+			const day = 86_400_000;
+			// Sample both sides of a Stockholm clock change and retain only exact wall-time matches.
+			const offsets = new Set([utc - day, utc, utc + day].map((sample) => {
+				const local = zonedParts(sample);
+				return Date.parse(local.date + 'T' + local.time + 'Z') - sample;
+			}));
+			return Array.from(offsets)
+				.filter(Number.isFinite)
+				.map((offset) => utc - offset)
+				.filter((instant) => {
+					const local = zonedParts(instant);
+					return local.date === date && local.time === time;
+				})
+				.sort((first, second) => first - second);
+		}
+
+		function setOccurrences(boundary, date, clock, instants, computedInstant) {
+			const wall = date + 'T' + clock;
+			const select = boundary.occurrence;
+			boundary.occurrenceField.hidden = instants.length < 2;
+			if (boundary.wall !== wall) {
+				boundary.wall = wall;
+				select.replaceChildren(new Option('Choose an occurrence', ''));
+				if (instants.length > 1) {
+					for (const [index, instant] of instants.entries()) {
+						const offset = (Date.parse(wall + 'Z') - instant) / 60_000;
+						const zoneLabel = 'UTC+' + pad(Math.floor(offset / 60)) + ':' + pad(offset % 60);
+						select.add(new Option((index === 0 ? 'First' : 'Second') + ' · ' + zoneLabel, String(instant)));
+					}
+				}
+			}
+			if (computedInstant !== undefined && instants.length > 1) select.value = String(computedInstant);
+		}
+
+		function resolveBoundary(boundary, errors) {
+			const date = boundary.date.value;
+			const clock = readClock(boundary.time.value);
+			const dateIsValid = validDate(date);
+			const instants = dateIsValid && clock ? possibleInstants(date, clock) : [];
+			setOccurrences(boundary, date, clock, instants);
+			if (!dateIsValid) errors.set(boundary.date, 'Enter a valid date.');
+			if (!clock) errors.set(boundary.time, 'Enter a 24-hour time, e.g. 09:00.');
+			if (!dateIsValid || !clock) return null;
+			if (instants.length === 0) {
+				errors.set(boundary.time, 'This time does not exist in Stockholm on that date. Choose another time.');
+				return null;
+			}
+			if (instants.length === 1) return instants[0];
+			if (boundary.occurrence.value) return Number(boundary.occurrence.value);
+			errors.set(boundary.occurrence, 'This time occurs twice. Choose the intended occurrence.');
+			return null;
+		}
+
+		function setEnd(instant) {
+			if (instant === null) {
+				end.date.value = '';
+				end.time.value = '';
+				setOccurrences(end, '', '', []);
+				return false;
+			}
+			const local = zonedParts(instant);
+			if (!validDate(local.date)) return setEnd(null);
+			end.date.value = local.date;
+			end.time.value = local.time.endsWith(':00') ? local.time.slice(0, 5) : local.time;
+			setOccurrences(end, local.date, local.time, possibleInstants(local.date, local.time), instant);
+			return true;
+		}
+
+		function calculateTimed(errors) {
+			const startInstant = resolveBoundary(start, errors);
+			if (anchor === 'duration') {
+				const result = readDuration(timedDuration.value);
+				if (result.error) errors.set(timedDuration, result.error);
+				if (startInstant === null || result.error) {
+					setEnd(null);
+					return null;
+				}
+				const endInstant = startInstant + result.seconds * 1000;
+				if (setEnd(endInstant)) return result.seconds;
+				errors.set(timedDuration, 'Enter a duration that ends within the supported dates.');
+				return null;
+			}
+
+			const endInstant = resolveBoundary(end, errors);
+			timedDuration.value = '';
+			if (startInstant === null || endInstant === null) return null;
+			const seconds = (endInstant - startInstant) / 1000;
+			if (seconds <= 0) {
+				errors.set(end.time, 'End must be after start. Change the end date if the work ends the next day.');
+				return null;
+			}
+			if (seconds > maxDuration) {
+				errors.set(end.date, 'Enter an end date closer to the start date.');
+				return null;
+			}
+			timedDuration.value = durationLabel(seconds);
+			return seconds;
+		}
+
+		function calculate() {
+			const errors = new Map();
+			if (!description.value.trim()) errors.set(description, 'Enter a description.');
+			let seconds;
+			if (timed) {
+				seconds = calculateTimed(errors);
+			} else {
+				if (!validDate(workDate.value)) errors.set(workDate, 'Enter a valid work date.');
+				const result = readDuration(workDuration.value);
+				if (result.error) errors.set(workDuration, result.error);
+				seconds = result.seconds;
+			}
+			return { errors, seconds };
+		}
+
+		function validate(revealAll = false) {
+			const result = calculate();
+			find('start-rule').textContent = anchor === 'duration'
+				? 'Changing the start keeps the duration.'
+				: 'Changing the start keeps the end.';
+			for (const field of touchedFields) {
+				const message = find(field.id + '-error');
+				message.hidden = true;
+				message.textContent = '';
+				field.removeAttribute('aria-invalid');
+			}
+			for (const [field, error] of result.errors) {
+				if (!revealAll && !touchedFields.has(field)) continue;
+				const message = find(field.id + '-error');
+				message.textContent = error;
+				message.hidden = false;
+				field.setAttribute('aria-invalid', 'true');
+				touchedFields.add(field);
+			}
+			return result;
+		}
+
+		function switchMode(showTimed) {
+			timed = showTimed;
+			find('mode-timed').checked = timed;
+			find('mode-duration').checked = !timed;
+			find('timed-fields').hidden = find('timed-fields').inert = !timed;
+			find('duration-fields').hidden = find('duration-fields').inert = timed;
+			status.textContent = '';
+			validate();
+		}
+
+		function setExample({ date, time, duration, endTime }) {
+			start.wall = '';
+			end.wall = '';
+			start.date.value = date;
+			start.time.value = time;
+			timedDuration.value = duration;
+			anchor = endTime ? 'end' : 'duration';
+			if (endTime) {
+				end.date.value = date;
+				end.time.value = endTime;
+			}
+			status.textContent = '';
+			validate();
+		}
+
+		for (const button of document.querySelectorAll('[data-layout]')) {
+			button.addEventListener('click', () => {
+				document.body.dataset.preview = button.dataset.layout;
+				for (const option of document.querySelectorAll('[data-layout]')) {
+					option.setAttribute('aria-pressed', String(option === button));
+				}
+			});
+		}
+		for (const option of form.querySelectorAll('[name="mode"]')) {
+			option.addEventListener('change', () => switchMode(option.value === 'timed'));
+		}
+		find('example-overnight').addEventListener('click', () => {
+			setExample({ date: '2026-11-12', time: '23:30', duration: '1:15:00' });
+		});
+		find('example-clock-change').addEventListener('click', () => {
+			setExample({ date: '2026-10-25', time: '01:30', duration: '', endTime: '02:30' });
+			end.occurrence.focus();
+		});
+
+		form.addEventListener('input', (event) => {
+			const field = event.target;
+			if (field.name === 'mode') return;
+			if (field === timedDuration) anchor = 'duration';
+			if ([end.date, end.time, end.occurrence].includes(field)) anchor = 'end';
+			status.textContent = '';
+			validate();
+		});
+
+		form.addEventListener('focusout', (event) => {
+			const field = event.target;
+			if (field === timedDuration || field === workDuration) {
+				const result = readDuration(field.value);
+				if (result.seconds) field.value = durationLabel(result.seconds);
+			}
+			if (find(field.id + '-error')) touchedFields.add(field);
+			validate();
+		});
+
+		function displayDate(value) {
+			return dateLabel.format(new Date(value + 'T00:00:00Z'));
+		}
+
+		form.addEventListener('submit', (event) => {
+			event.preventDefault();
+			const { errors, seconds } = validate(true);
+			if (errors.size > 0) {
+				status.textContent = 'Check the highlighted fields to preview this entry.';
+				errors.keys().next().value.focus();
+				return;
+			}
+			const summary = timed
+				? displayDate(start.date.value) + ' ' + start.time.value.trim() + ' to ' +
+					displayDate(end.date.value) + ' ' + end.time.value.trim() + ' Stockholm time'
+				: displayDate(workDate.value);
+			const selectedAssociation = association.value ? ' · ' + association.selectedOptions[0].textContent : '';
+			status.textContent = 'Entry preview · ' + description.value.trim() + ' · ' + summary +
+				' · ' + durationLabel(seconds) + selectedAssociation;
+		});
+
+		const today = zonedParts(Date.now()).date;
+		workDate.value = today;
+		start.date.value = today;
+		end.date.value = today;
+		switchMode(false);
+	</script>
+</body>
+</html>
