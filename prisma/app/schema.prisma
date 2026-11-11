@@ -17,6 +17,8 @@ model Account {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   sessions     Session[]
+  clients      Client[]
+  projects     Project[]
 }
 
 model Session {
@@ -28,4 +30,36 @@ model Session {
 
   @@index([accountId])
   @@index([expiresAt])
+}
+
+model Client {
+	id                    String    @id
+	accountId             String
+	account               Account   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+	name                  String
+	notes                 String?
+	defaultRateOrePerHour BigInt?
+	archivedAt            DateTime?
+	revision              Int       @default(1)
+	projects              Project[]
+
+	@@unique([accountId, id])
+	@@index([accountId, archivedAt])
+}
+
+model Project {
+	id                     String    @id
+	accountId              String
+	account                Account   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+	clientId               String?
+	client                 Client?   @relation(fields: [accountId, clientId], references: [accountId, id], onDelete: Restrict)
+	name                   String
+	notes                  String?
+	rateOverrideOrePerHour BigInt?
+	defaultBillable        Boolean   @default(true)
+	archivedAt             DateTime?
+	revision               Int       @default(1)
+
+	@@index([accountId, archivedAt])
+	@@index([accountId, clientId])
 }

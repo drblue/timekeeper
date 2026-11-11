@@ -1,7 +1,8 @@
-import { createRootRoute, createRoute, createRouter, Navigate, Outlet } from '@tanstack/react-router';
+import { createRootRoute, createRoute, createRouter, Link, Navigate, Outlet } from '@tanstack/react-router';
 import { authLogoutPath } from '@timekeeper/contracts';
 import { useState } from 'react';
 import { authError, postAuth, SessionContext, useReplaceSession, useSession, useSessionQuery } from './auth';
+import { Clients, Projects } from './catalog-page';
 import { Home } from './home';
 import { Login } from './login';
 import { Password } from './password';
@@ -41,6 +42,7 @@ function SignOut() {
 
 function Layout() {
 	const session = useSessionQuery();
+	const signedIn = !session.isError && !!session.data?.account;
 	const content = session.isError ? (
 		<section className="account-view">
 			<h1>Connection unavailable</h1>
@@ -60,7 +62,16 @@ function Layout() {
 						</svg>
 						<span>Timekeeper</span>
 					</div>
-					{!session.isError && session.data?.account ? <SignOut /> : null}
+					{signedIn ? (
+						<>
+							<nav className="workspace-nav" aria-label="Workspace">
+								<Link to="/" activeOptions={{ exact: true }}>Home</Link>
+								<Link to="/clients">Clients</Link>
+								<Link to="/projects">Projects</Link>
+							</nav>
+							<SignOut />
+						</>
+					) : null}
 				</div>
 			</header>
 			<main className="shell main-content">{content}</main>
@@ -94,9 +105,19 @@ const passwordRoute = createRoute({
 	path: '/password',
 	component: Password,
 });
+const clientsRoute = createRoute({
+	getParentRoute: () => protectedRoute,
+	path: '/clients',
+	component: Clients,
+});
+const projectsRoute = createRoute({
+	getParentRoute: () => protectedRoute,
+	path: '/projects',
+	component: Projects,
+});
 
 export const router = createRouter({
-	routeTree: rootRoute.addChildren([loginRoute, protectedRoute.addChildren([homeRoute, passwordRoute])]),
+	routeTree: rootRoute.addChildren([loginRoute, protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute])]),
 });
 
 declare module '@tanstack/react-router' {

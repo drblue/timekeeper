@@ -20,6 +20,8 @@ export async function openDatabase(url: string): Promise<PrismaClient> {
 		}
 		await database.account.findFirst({ select: { id: true } });
 		await database.session.findFirst({ select: { tokenHash: true } });
+		await database.client.findFirst({ select: { id: true } });
+		await database.project.findFirst({ select: { id: true } });
 		return database;
 	} catch {
 		await database.$disconnect();

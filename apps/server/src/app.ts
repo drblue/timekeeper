@@ -11,14 +11,17 @@ import type { FastifyError } from 'fastify';
 import { canonicalAddress } from './auth/config.ts';
 import { registerAccountAccess } from './auth/routes.ts';
 import type { AuthOptions } from './auth/routes.ts';
+import { registerCatalog } from './catalog/routes.ts';
+import type { CatalogStore } from './catalog/store.ts';
 
 interface AppOptions {
 	webRoot?: string;
 	logger?: boolean;
 	auth?: AuthOptions;
+	catalog?: CatalogStore;
 }
 
-export async function createApp({ webRoot, logger = false, auth }: AppOptions = {}) {
+export async function createApp({ webRoot, logger = false, auth, catalog }: AppOptions = {}) {
 	if (webRoot) {
 		await access(resolve(webRoot, 'index.html'));
 	}
@@ -122,6 +125,9 @@ export async function createApp({ webRoot, logger = false, auth }: AppOptions = 
 	});
 
 	await registerAccountAccess(app, auth);
+	if (catalog) {
+		registerCatalog(app, catalog);
+	}
 
 	app.get<{ Reply: HealthResponse | ApiErrorResponse }>(healthPath, {
 		config: { publicAccess: true },
@@ -161,7 +167,7 @@ export async function createApp({ webRoot, logger = false, auth }: AppOptions = 
 				immutable: true,
 			});
 
-			for (const path of ['/', '/login', '/password']) {
+			for (const path of ['/', '/login', '/password', '/clients', '/projects']) {
 				web.get(path, { schema: { hide: true } }, (_request, reply) => {
 					return reply.header('Cache-Control', 'no-cache').sendFile('index.html', webRoot, { cacheControl: false });
 				});
