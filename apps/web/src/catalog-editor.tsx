@@ -2,17 +2,14 @@ import { maxCatalogNameLength, maxCatalogNotesLength } from '@timekeeper/contrac
 import type { ClientResponse, CreateClientBody, CreateProjectBody } from '@timekeeper/contracts';
 import { useId, useState } from 'react';
 import type { SubmitEvent } from 'react';
+import { ApiRequestError, writeApi } from './api';
 import { useSession } from './auth';
 import {
-	CatalogRequestError,
 	catalogPaths,
 	describeCatalogError,
-	formatHourlyRate,
-	parseHourlyRate,
-	rateInputValue,
-	writeCatalog,
 } from './catalog';
 import type { CatalogKind, CatalogRecord } from './catalog';
+import { formatHourlyRate, parseHourlyRate, rateInputValue } from './money';
 
 interface CatalogEditorProps {
 	kind: CatalogKind;
@@ -53,7 +50,7 @@ export function CatalogEditor({ kind, record, clients, onClose, onSaved, onReloa
 		setDuplicate(null);
 		const path = catalogPaths[kind];
 		try {
-			await writeCatalog(
+			await writeApi(
 				record ? `${path}/${record.id}` : path,
 				record ? 'PUT' : 'POST',
 				session.csrfToken,
@@ -65,13 +62,13 @@ export function CatalogEditor({ kind, record, clients, onClose, onSaved, onReloa
 			);
 			onSaved();
 		} catch (cause) {
-			if (cause instanceof CatalogRequestError && cause.code === duplicateCode) {
+			if (cause instanceof ApiRequestError && cause.code === duplicateCode) {
 				setDuplicate(body);
 			} else {
-				if (cause instanceof CatalogRequestError && cause.code === 'REVISION_CONFLICT') {
+				if (cause instanceof ApiRequestError && cause.code === 'REVISION_CONFLICT') {
 					setConflict(true);
 				}
-				if (cause instanceof CatalogRequestError && cause.code === 'INVALID_CLIENT') {
+				if (cause instanceof ApiRequestError && cause.code === 'INVALID_CLIENT') {
 					await onClientUnavailable();
 				}
 				setError(await describeCatalogError(cause, refresh, `Could not save the ${kind}. Check your connection and try again.`));
@@ -126,10 +123,10 @@ export function CatalogEditor({ kind, record, clients, onClose, onSaved, onReloa
 	}
 
 	return (
-		<form className="panel catalog-editor" onSubmit={submit} onChange={() => { if (duplicate) setDuplicate(null); }} aria-busy={pending}>
+		<form className="panel record-editor" onSubmit={submit} onChange={() => { if (duplicate) setDuplicate(null); }} aria-busy={pending}>
 			<h2>{record ? `Edit ${kind}` : `New ${kind}`}</h2>
 			{error ? <p role="alert" className="feedback error">{error}</p> : null}
-			<fieldset disabled={pending} className="catalog-fields">
+			<fieldset disabled={pending} className="record-fields">
 				<div className="field">
 					<label htmlFor={nameId}>Name</label>
 					<input id={nameId} name="name" defaultValue={record?.name} required autoFocus />

@@ -8,20 +8,24 @@ import { TypeCompiler } from '@sinclair/typebox/compiler';
 import { ApiErrorResponse, healthPath, HealthQuery, HealthResponse } from '@timekeeper/contracts';
 import Fastify from 'fastify';
 import type { FastifyError } from 'fastify';
+import { ApiRequestError } from './api-error.ts';
 import { canonicalAddress } from './auth/config.ts';
 import { registerAccountAccess } from './auth/routes.ts';
 import type { AuthOptions } from './auth/routes.ts';
 import { registerCatalog } from './catalog/routes.ts';
 import type { CatalogStore } from './catalog/store.ts';
+import { registerEntries } from './entries/routes.ts';
+import type { EntryStore } from './entries/store.ts';
 
 interface AppOptions {
 	webRoot?: string;
 	logger?: boolean;
 	auth?: AuthOptions;
 	catalog?: CatalogStore;
+	entries?: EntryStore;
 }
 
-export async function createApp({ webRoot, logger = false, auth, catalog }: AppOptions = {}) {
+export async function createApp({ webRoot, logger = false, auth, catalog, entries }: AppOptions = {}) {
 	if (webRoot) {
 		await access(resolve(webRoot, 'index.html'));
 	}
@@ -65,6 +69,14 @@ export async function createApp({ webRoot, logger = false, auth, catalog }: AppO
 	app.setErrorHandler((error, request, reply) => {
 		reply.header('Cache-Control', 'no-store');
 		const requestId = request.id;
+		if (error instanceof ApiRequestError) {
+			return reply.code(error.status).send({
+				code: error.code,
+				message: error.message,
+				requestId,
+				...(error.field ? { fieldErrors: [{ field: `body/${error.field}`, message: error.message }] } : {}),
+			} satisfies ApiErrorResponse);
+		}
 		const details = error instanceof Error ? error as Partial<FastifyError> : {};
 
 		if (details.validation) {
@@ -128,6 +140,9 @@ export async function createApp({ webRoot, logger = false, auth, catalog }: AppO
 	if (catalog) {
 		registerCatalog(app, catalog);
 	}
+	if (entries) {
+		registerEntries(app, entries);
+	}
 
 	app.get<{ Reply: HealthResponse | ApiErrorResponse }>(healthPath, {
 		config: { publicAccess: true },
@@ -167,7 +182,7 @@ export async function createApp({ webRoot, logger = false, auth, catalog }: AppO
 				immutable: true,
 			});
 
-			for (const path of ['/', '/login', '/password', '/clients', '/projects']) {
+			for (const path of ['/', '/login', '/password', '/clients', '/projects', '/entries', '/entries/:entryId']) {
 				web.get(path, { schema: { hide: true } }, (_request, reply) => {
 					return reply.header('Cache-Control', 'no-cache').sendFile('index.html', webRoot, { cacheControl: false });
 				});

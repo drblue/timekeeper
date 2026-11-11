@@ -22,6 +22,8 @@ export async function openDatabase(url: string): Promise<PrismaClient> {
 		await database.session.findFirst({ select: { tokenHash: true } });
 		await database.client.findFirst({ select: { id: true } });
 		await database.project.findFirst({ select: { id: true } });
+		await database.entry.findFirst({ select: { id: true } });
+		await database.entryDayAllocation.findFirst({ select: { entryId: true } });
 		return database;
 	} catch {
 		await database.$disconnect();

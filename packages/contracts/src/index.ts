@@ -3,6 +3,7 @@ import type { Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 
 export * from './catalog.js';
+export * from './entries.js';
 
 export const healthPath = '/api/v1/health';
 export const authSessionPath = '/api/v1/auth/session';

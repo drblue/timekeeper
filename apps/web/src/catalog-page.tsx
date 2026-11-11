@@ -2,18 +2,17 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { parseClientListResponse, parseProjectListResponse } from '@timekeeper/contracts';
 import type { ClientResponse } from '@timekeeper/contracts';
 import { useRef, useState } from 'react';
+import { ApiRequestError, writeApi } from './api';
 import { useSession } from './auth';
 import { CatalogEditor } from './catalog-editor';
 import {
-	CatalogRequestError,
 	catalogKey,
 	catalogPaths,
 	describeCatalogError,
-	formatHourlyRate,
 	readCatalog,
-	writeCatalog,
 } from './catalog';
 import type { CatalogKind, CatalogRecord } from './catalog';
+import { formatHourlyRate } from './money';
 
 function RecordDetails({ record, client }: { record: CatalogRecord; client?: ClientResponse }) {
 	if ('effectiveRateOrePerHour' in record) {
@@ -104,14 +103,14 @@ export function CatalogPage({ kind }: { kind: CatalogKind }) {
 		setPendingId(record.id);
 		setFeedback(null);
 		try {
-			await writeCatalog(`${catalogPaths[kind]}/${record.id}/${action}`, 'POST', session.csrfToken, { revision: record.revision });
+			await writeApi(`${catalogPaths[kind]}/${record.id}/${action}`, 'POST', session.csrfToken, { revision: record.revision });
 			setFeedback({ message: `The ${kind} was ${action === 'archive' ? 'archived' : 'restored'}.` });
 			if (action === 'archive' && !showArchived) {
 				archivedControl.current?.focus();
 			}
 			await queryClient.invalidateQueries({ queryKey: catalogKey });
 		} catch (cause) {
-			if (cause instanceof CatalogRequestError && cause.code === 'REVISION_CONFLICT') {
+			if (cause instanceof ApiRequestError && cause.code === 'REVISION_CONFLICT') {
 				await reloadRecords();
 				setFeedback({ message: 'This record changed elsewhere. Check the current list and try again.', error: true });
 			} else {

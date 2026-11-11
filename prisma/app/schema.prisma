@@ -19,6 +19,7 @@ model Account {
   sessions     Session[]
   clients      Client[]
   projects     Project[]
+  entries      Entry[]
 }
 
 model Session {
@@ -42,6 +43,7 @@ model Client {
 	archivedAt            DateTime?
 	revision              Int       @default(1)
 	projects              Project[]
+	entries               Entry[]
 
 	@@unique([accountId, id])
 	@@index([accountId, archivedAt])
@@ -59,7 +61,44 @@ model Project {
 	defaultBillable        Boolean   @default(true)
 	archivedAt             DateTime?
 	revision               Int       @default(1)
+	entries                Entry[]
 
+	@@unique([accountId, id])
 	@@index([accountId, archivedAt])
 	@@index([accountId, clientId])
+}
+
+model Entry {
+	id                     String               @id
+	accountId              String
+	account                Account              @relation(fields: [accountId], references: [id], onDelete: Restrict)
+	kind                   String
+	description            String
+	localDate              String
+	durationSeconds        Int
+	projectId              String?
+	project                Project?             @relation(fields: [accountId, projectId], references: [accountId, id], onDelete: Restrict)
+	directClientId         String?
+	directClient           Client?              @relation(fields: [accountId, directClientId], references: [accountId, id], onDelete: Restrict)
+	billable               Boolean
+	assignedRateOrePerHour BigInt?
+	billableAmountOre      BigInt
+	revision               Int                  @default(1)
+	createdAt              DateTime             @default(now())
+	allocations            EntryDayAllocation[]
+
+	@@index([accountId, localDate, createdAt])
+	@@index([accountId, projectId])
+	@@index([accountId, directClientId])
+}
+
+model EntryDayAllocation {
+	entryId            String
+	entry              Entry  @relation(fields: [entryId], references: [id], onDelete: Restrict)
+	localDate          String
+	seconds            Int
+	amountOre          BigInt
+	calculationVersion Int
+
+	@@id([entryId, localDate])
 }

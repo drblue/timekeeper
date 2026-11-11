@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { maxCatalogNameLength, maxCatalogNotesLength, maxHourlyRateOre } from '@timekeeper/contracts';
+import { maxCatalogNameLength, maxCatalogNotesLength } from '@timekeeper/contracts';
 import type {
 	CatalogListQuery,
 	ClientResponse,
@@ -9,25 +9,17 @@ import type {
 	UpdateClientBody,
 	UpdateProjectBody,
 } from '@timekeeper/contracts';
+import { writeForAccount } from '../account-write.ts';
+import { ApiRequestError } from '../api-error.ts';
+import { parseHourlyRateOre } from '../billing.ts';
 import type { Client, Prisma, PrismaClient, Project } from '../generated/prisma/client.ts';
-
-export class CatalogError extends Error {
-	constructor(
-		readonly status: 401 | 404 | 409 | 422,
-		readonly code: string,
-		message: string,
-		readonly field?: string,
-	) {
-		super(message);
-	}
-}
+import { activeProjectWhere, effectiveProjectHourlyRate } from './project.ts';
 
 type CatalogView = CatalogListQuery['view'];
 type ProjectWithRate = Project & { client: { defaultRateOrePerHour: bigint | null } | null };
 
 const projectClientRate = { client: { select: { defaultRateOrePerHour: true } } } as const;
 const orderBy = [{ name: 'asc' }, { id: 'asc' }] satisfies Prisma.ClientOrderByWithRelationInput[];
-const maxRate = BigInt(maxHourlyRateOre);
 
 function clientResponse(client: Client): ClientResponse {
 	return {
@@ -41,7 +33,7 @@ function clientResponse(client: Client): ClientResponse {
 }
 
 function projectResponse(project: ProjectWithRate): ProjectResponse {
-	const effectiveRate = project.rateOverrideOrePerHour ?? project.client?.defaultRateOrePerHour;
+	const effectiveRate = effectiveProjectHourlyRate(project);
 	return {
 		id: project.id,
 		clientId: project.clientId,
@@ -59,10 +51,10 @@ function catalogText(input: { name: string; notes: string | null }) {
 	const name = input.name.trim();
 	const notes = input.notes?.trim() || null;
 	if (!name || [...name].length > maxCatalogNameLength) {
-		throw new CatalogError(422, 'INVALID_NAME', `Enter a name up to ${maxCatalogNameLength} characters.`, 'name');
+		throw new ApiRequestError(422, 'INVALID_NAME', `Enter a name up to ${maxCatalogNameLength} characters.`, 'name');
 	}
 	if (notes && [...notes].length > maxCatalogNotesLength) {
-		throw new CatalogError(422, 'INVALID_NOTES', `Enter up to ${maxCatalogNotesLength} characters of notes.`, 'notes');
+		throw new ApiRequestError(422, 'INVALID_NOTES', `Enter up to ${maxCatalogNotesLength} characters of notes.`, 'notes');
 	}
 	return { name, notes };
 }
@@ -71,23 +63,12 @@ function nameKey(name: string) {
 	return name.trim().toLowerCase().normalize('NFC');
 }
 
-function hourlyRate(rate: string | null, field: 'defaultRateOrePerHour' | 'rateOverrideOrePerHour') {
-	if (rate === null) {
-		return null;
-	}
-	const value = BigInt(rate);
-	if (value > maxRate) {
-		throw new CatalogError(422, 'INVALID_HOURLY_RATE', 'The hourly rate exceeds the supported maximum.', field);
-	}
-	return value;
-}
-
 function checkRevision<T extends { revision: number }>(record: T | null, expected: number, resource: 'Client' | 'Project'): T {
 	if (!record) {
-		throw new CatalogError(404, 'NOT_FOUND', `${resource} was not found.`);
+		throw new ApiRequestError(404, 'NOT_FOUND', `${resource} was not found.`);
 	}
 	if (record.revision !== expected) {
-		throw new CatalogError(409, 'REVISION_CONFLICT', `${resource} changed. Reload and try again.`);
+		throw new ApiRequestError(409, 'REVISION_CONFLICT', `${resource} changed. Reload and try again.`);
 	}
 	return record;
 }
@@ -99,7 +80,7 @@ async function warnDuplicateClient(transaction: Prisma.TransactionClient, accoun
 		select: { name: true },
 	});
 	if (candidates.some((client) => nameKey(client.name) === key)) {
-		throw new CatalogError(409, 'DUPLICATE_CLIENT_NAME', 'A client already uses this name.', 'name');
+		throw new ApiRequestError(409, 'DUPLICATE_CLIENT_NAME', 'A client already uses this name.', 'name');
 	}
 }
 
@@ -112,7 +93,7 @@ async function warnDuplicateProject(
 		select: { name: true },
 	});
 	if (candidates.some((project) => nameKey(project.name) === key)) {
-		throw new CatalogError(409, 'DUPLICATE_PROJECT_NAME', 'A project already uses this name for the selected client.', 'name');
+		throw new ApiRequestError(409, 'DUPLICATE_PROJECT_NAME', 'A project already uses this name for the selected client.', 'name');
 	}
 }
 
@@ -125,22 +106,11 @@ async function requireActiveClient(transaction: Prisma.TransactionClient, accoun
 		select: { id: true },
 	});
 	if (!client) {
-		throw new CatalogError(422, 'INVALID_CLIENT', 'Choose an active client or leave the project without a client.', 'clientId');
+		throw new ApiRequestError(422, 'INVALID_CLIENT', 'Choose an active client or leave the project without a client.', 'clientId');
 	}
 }
 
 export function createCatalogStore(database: PrismaClient) {
-	function mutate<T>(accountId: string, operation: (transaction: Prisma.TransactionClient) => Promise<T>) {
-		return database.$transaction(async (transaction) => {
-			// Start with a write so SQLite acquires the writer lock before the duplicate, client and revision reads.
-			const matched = await transaction.$executeRaw`UPDATE "Account" SET "updatedAt" = "updatedAt" WHERE "id" = ${accountId}`;
-			if (matched !== 1) {
-				throw new CatalogError(401, 'AUTH_REQUIRED', 'Sign in to continue.');
-			}
-			return operation(transaction);
-		});
-	}
-
 	return {
 		async listClients(accountId: string, view: CatalogView) {
 			const records = await database.client.findMany({
@@ -152,11 +122,7 @@ export function createCatalogStore(database: PrismaClient) {
 
 		async listProjects(accountId: string, view: CatalogView) {
 			const records = await database.$transaction((transaction) => transaction.project.findMany({
-				where: view === 'management' ? { accountId } : {
-					accountId,
-					archivedAt: null,
-					OR: [{ clientId: null }, { client: { is: { accountId, archivedAt: null } } }],
-				},
+				where: view === 'management' ? { accountId } : activeProjectWhere(accountId),
 				include: projectClientRate,
 				orderBy,
 			}));
@@ -165,8 +131,8 @@ export function createCatalogStore(database: PrismaClient) {
 
 		createClient(accountId: string, input: CreateClientBody) {
 			const text = catalogText(input);
-			const defaultRateOrePerHour = hourlyRate(input.defaultRateOrePerHour, 'defaultRateOrePerHour');
-			return mutate(accountId, async (transaction) => {
+			const defaultRateOrePerHour = parseHourlyRateOre(input.defaultRateOrePerHour, 'defaultRateOrePerHour');
+			return writeForAccount(database, accountId, async (transaction) => {
 				if (!input.confirmDuplicate) {
 					await warnDuplicateClient(transaction, accountId, text.name);
 				}
@@ -179,8 +145,8 @@ export function createCatalogStore(database: PrismaClient) {
 
 		updateClient(accountId: string, id: string, input: UpdateClientBody) {
 			const text = catalogText(input);
-			const defaultRateOrePerHour = hourlyRate(input.defaultRateOrePerHour, 'defaultRateOrePerHour');
-			return mutate(accountId, async (transaction) => {
+			const defaultRateOrePerHour = parseHourlyRateOre(input.defaultRateOrePerHour, 'defaultRateOrePerHour');
+			return writeForAccount(database, accountId, async (transaction) => {
 				const where = { id, accountId };
 				const current = checkRevision(await transaction.client.findUnique({ where }), input.revision, 'Client');
 				if (!input.confirmDuplicate && nameKey(current.name) !== nameKey(text.name)) {
@@ -195,7 +161,7 @@ export function createCatalogStore(database: PrismaClient) {
 		},
 
 		setClientArchived(accountId: string, id: string, revision: number, archive: boolean) {
-			return mutate(accountId, async (transaction) => {
+			return writeForAccount(database, accountId, async (transaction) => {
 				const where = { id, accountId };
 				const current = checkRevision(await transaction.client.findUnique({ where }), revision, 'Client');
 				if (Boolean(current.archivedAt) === archive) {
@@ -211,9 +177,9 @@ export function createCatalogStore(database: PrismaClient) {
 
 		createProject(accountId: string, input: CreateProjectBody) {
 			const text = catalogText(input);
-			const rateOverrideOrePerHour = hourlyRate(input.rateOverrideOrePerHour, 'rateOverrideOrePerHour');
+			const rateOverrideOrePerHour = parseHourlyRateOre(input.rateOverrideOrePerHour, 'rateOverrideOrePerHour');
 			const { clientId, defaultBillable = true } = input;
-			return mutate(accountId, async (transaction) => {
+			return writeForAccount(database, accountId, async (transaction) => {
 				await requireActiveClient(transaction, accountId, clientId);
 				if (!input.confirmDuplicate) {
 					await warnDuplicateProject(transaction, accountId, clientId, text.name);
@@ -228,14 +194,17 @@ export function createCatalogStore(database: PrismaClient) {
 
 		updateProject(accountId: string, id: string, input: UpdateProjectBody) {
 			const text = catalogText(input);
-			const rateOverrideOrePerHour = hourlyRate(input.rateOverrideOrePerHour, 'rateOverrideOrePerHour');
+			const rateOverrideOrePerHour = parseHourlyRateOre(input.rateOverrideOrePerHour, 'rateOverrideOrePerHour');
 			const { clientId, defaultBillable, revision } = input;
-			return mutate(accountId, async (transaction) => {
+			return writeForAccount(database, accountId, async (transaction) => {
 				const where = { id, accountId };
 				const current = checkRevision(await transaction.project.findUnique({ where }), revision, 'Project');
 				const changedClient = current.clientId !== clientId;
 				if (changedClient) {
-					// Issue #6 must check for existing entries here in the same transaction as the reassignment.
+					const entry = await transaction.entry.findFirst({ where: { accountId, projectId: id }, select: { id: true } });
+					if (entry) {
+						throw new ApiRequestError(409, 'PROJECT_CLIENT_LOCKED', 'The client cannot change after work has been recorded for this project.', 'clientId');
+					}
 					await requireActiveClient(transaction, accountId, clientId);
 				}
 				if (!input.confirmDuplicate && (changedClient || nameKey(current.name) !== nameKey(text.name))) {
@@ -251,7 +220,7 @@ export function createCatalogStore(database: PrismaClient) {
 		},
 
 		setProjectArchived(accountId: string, id: string, revision: number, archive: boolean) {
-			return mutate(accountId, async (transaction) => {
+			return writeForAccount(database, accountId, async (transaction) => {
 				const where = { id, accountId };
 				const current = checkRevision(await transaction.project.findUnique({ where, include: projectClientRate }), revision, 'Project');
 				if (Boolean(current.archivedAt) === archive) {

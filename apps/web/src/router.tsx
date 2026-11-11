@@ -3,6 +3,7 @@ import { authLogoutPath } from '@timekeeper/contracts';
 import { useState } from 'react';
 import { authError, postAuth, SessionContext, useReplaceSession, useSession, useSessionQuery } from './auth';
 import { Clients, Projects } from './catalog-page';
+import { Entries, EntryDetail } from './entries';
 import { Home } from './home';
 import { Login } from './login';
 import { Password } from './password';
@@ -66,6 +67,7 @@ function Layout() {
 						<>
 							<nav className="workspace-nav" aria-label="Workspace">
 								<Link to="/" activeOptions={{ exact: true }}>Home</Link>
+								<Link to="/entries">Entries</Link>
 								<Link to="/clients">Clients</Link>
 								<Link to="/projects">Projects</Link>
 							</nav>
@@ -115,9 +117,22 @@ const projectsRoute = createRoute({
 	path: '/projects',
 	component: Projects,
 });
+const entriesRoute = createRoute({
+	getParentRoute: () => protectedRoute,
+	path: '/entries',
+	component: Entries,
+});
+const entryDetailRoute = createRoute({
+	getParentRoute: () => protectedRoute,
+	path: '/entries/$entryId',
+	component: EntryDetail,
+});
 
 export const router = createRouter({
-	routeTree: rootRoute.addChildren([loginRoute, protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute])]),
+	routeTree: rootRoute.addChildren([
+		loginRoute,
+		protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute, entriesRoute, entryDetailRoute]),
+	]),
 });
 
 declare module '@tanstack/react-router' {

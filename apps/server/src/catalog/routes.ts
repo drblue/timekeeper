@@ -15,7 +15,6 @@ import {
 	UpdateProjectBody,
 } from '@timekeeper/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { CatalogError } from './store.ts';
 import type { CatalogStore } from './store.ts';
 
 const listErrors = { 400: ApiErrorResponse, 401: ApiErrorResponse, 500: ApiErrorResponse };
@@ -34,20 +33,8 @@ async function respondWithRecord(
 	status: 200 | 201,
 	write: (accountId: string) => Promise<ClientResponse | ProjectResponse>,
 ) {
-	try {
-		const result = await write(request.accountSession!.accountId);
-		return reply.code(status).send(result);
-	} catch (error) {
-		if (!(error instanceof CatalogError)) {
-			throw error;
-		}
-		return reply.code(error.status).send({
-			code: error.code,
-			message: error.message,
-			requestId: request.id,
-			...(error.field ? { fieldErrors: [{ field: `body/${error.field}`, message: error.message }] } : {}),
-		} satisfies ApiErrorResponse);
-	}
+	const result = await write(request.accountSession!.accountId);
+	return reply.code(status).send(result);
 }
 
 export function registerCatalog(app: FastifyInstance, store: CatalogStore) {

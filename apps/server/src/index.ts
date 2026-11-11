@@ -5,6 +5,7 @@ import { databaseUrl } from './auth/database-location.ts';
 import { openDatabase } from './auth/database.ts';
 import { createAuthStore } from './auth/store.ts';
 import { createCatalogStore } from './catalog/store.ts';
+import { createEntryStore } from './entries/store.ts';
 
 const host = process.env.HOST ?? '127.0.0.1';
 const port = Number(process.env.PORT ?? '3000');
@@ -23,7 +24,13 @@ const database = await openDatabase(databaseUrl());
 let app: Awaited<ReturnType<typeof createApp>>;
 try {
 	const store = await createAuthStore(database);
-	app = await createApp({ webRoot, logger: true, auth: { config, store }, catalog: createCatalogStore(database) });
+	app = await createApp({
+		webRoot,
+		logger: true,
+		auth: { config, store },
+		catalog: createCatalogStore(database),
+		entries: createEntryStore(database),
+	});
 	app.addHook('onClose', async () => { await database.$disconnect(); });
 } catch {
 	await database.$disconnect();
