@@ -142,7 +142,7 @@ The portability test suite must cover Unicode, trailing spaces, nulls, zero rate
 
 ### Representation
 
-Store timed instants at whole-second precision in UTC; use the same truncation policy for start and stop before computing integer elapsed seconds. Store manual duration-only dates as validated ISO date strings and durations as integer seconds. Audit timestamps may retain finer precision. Use an IANA-aware date-time library with explicit ambiguous/nonexistent-time handling; select and pin it during setup rather than implementing daylight-saving conversion ourselves.
+Store timed instants at whole-second precision in UTC. Use the same truncation policy for start and stop before computing integer elapsed seconds. Store manual duration-only dates as validated ISO date strings and durations as integer seconds. Audit timestamps may retain finer precision. The browser and server share the Stockholm resolver in `@timekeeper/contracts`, using `temporal-polyfill` 1.0.8 for explicit ambiguous and nonexistent local-time handling.
 
 Resolve calendar ranges in Europe/Stockholm to half-open instant intervals. Enumerate local midnights with timezone-aware calendar arithmetic, never by repeatedly adding 86,400 seconds. Duration-only entries contribute to one date. Keep the timezone/calculation version associated with stored allocation behavior.
 
@@ -282,7 +282,7 @@ Vitest covers pure domain behavior and service/persistence contracts. Playwright
 
 The stack and architecture above are selected; the following are deliberately not presented as settled or tested:
 
-- Exact compatible package/Node/database versions, runtime schema helper, date-time library, password/session package and timeout policy.
+- Exact compatible package/Node/database versions, runtime schema helper, password/session package and timeout policy.
 - UI component/styling system; it must support responsive forms and accessible controls without coupling domain rules to components.
 - PDF worker resource limits and job/upload limits, informed by the prototype and target measurements.
 - HTTPS proxy product/configuration, domain and remote access, external backup tool/destination and key recovery.

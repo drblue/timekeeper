@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getRouteApi, Link } from '@tanstack/react-router';
-import { entriesPath, parseDurationEntryListResponse, parseDurationEntryResponse } from '@timekeeper/contracts';
-import type { DurationEntryResponse } from '@timekeeper/contracts';
+import { entriesPath, formatStockholmLocalTime, parseEntryListResponse, parseEntryResponse } from '@timekeeper/contracts';
+import type { EntryResponse } from '@timekeeper/contracts';
 import { useRef, useState } from 'react';
 import { ApiRequestError, readApi } from './api';
 import { useSession } from './auth';
+import { displayClock } from './entry-time';
 import { EntryEditor } from './entry-editor';
 import { formatSek } from './money';
 
@@ -20,13 +21,20 @@ function formatDuration(seconds: number) {
 		.join(' ');
 }
 
-function EntrySummary({ entry }: { entry: DurationEntryResponse }) {
+function StockholmTime({ instant }: { instant: string }) {
+	const { local, offset } = formatStockholmLocalTime(instant);
+	return <time dateTime={instant}>{local.slice(0, 10)} {displayClock(local.slice(11))} (UTC{offset})</time>;
+}
+
+function EntrySummary({ entry }: { entry: EntryResponse }) {
 	const association = [entry.projectName, entry.clientName].filter(Boolean).join(' · ');
 	return (
 		<article className="panel entry-summary">
 			<h2><Link to="/entries/$entryId" params={{ entryId: entry.id }}>{entry.description}</Link></h2>
 			<p className="entry-summary-values">
-				<time dateTime={entry.localDate}>{entry.localDate}</time>
+				{entry.kind === 'timed' ? (
+					<span><StockholmTime instant={entry.startAt} /> to <StockholmTime instant={entry.endAt} /></span>
+				) : <time dateTime={entry.localDate}>{entry.localDate}</time>}
 				<span>{formatDuration(entry.durationSeconds)}</span>
 				<span>{formatSek(entry.billableAmountOre)}</span>
 			</p>
@@ -40,7 +48,7 @@ export function Entries() {
 	const queryClient = useQueryClient();
 	const entries = useQuery({
 		queryKey: entriesKey,
-		queryFn: ({ signal }) => readApi(entriesPath, parseDurationEntryListResponse, signal, refresh),
+		queryFn: ({ signal }) => readApi(entriesPath, parseEntryListResponse, signal, refresh),
 		retry: false,
 		networkMode: 'always',
 	});
@@ -53,7 +61,7 @@ export function Entries() {
 		requestAnimationFrame(() => editorTrigger.current?.focus());
 	}
 
-	function saved(entry: DurationEntryResponse) {
+	function saved(entry: EntryResponse) {
 		setSavedId(entry.id);
 		closeEditor();
 		void queryClient.invalidateQueries({ queryKey: entriesKey });
@@ -101,7 +109,7 @@ export function EntryDetail() {
 	const { refresh } = useSession();
 	const entry = useQuery({
 		queryKey: [...entriesKey, entryId],
-		queryFn: ({ signal }) => readApi(`${entriesPath}/${encodeURIComponent(entryId)}`, parseDurationEntryResponse, signal, refresh),
+		queryFn: ({ signal }) => readApi(`${entriesPath}/${encodeURIComponent(entryId)}`, parseEntryResponse, signal, refresh),
 		retry: false,
 		networkMode: 'always',
 	});
@@ -118,13 +126,34 @@ export function EntryDetail() {
 				</div>
 			) : data ? (
 				<dl className="panel entry-details">
-					<div><dt>Work date</dt><dd><time dateTime={data.localDate}>{data.localDate}</time></dd></div>
+					{data.kind === 'timed' ? (
+						<>
+							<div><dt>Start (Stockholm)</dt><dd><StockholmTime instant={data.startAt} /></dd></div>
+							<div><dt>End (Stockholm)</dt><dd><StockholmTime instant={data.endAt} /></dd></div>
+						</>
+					) : <div><dt>Work date</dt><dd><time dateTime={data.localDate}>{data.localDate}</time></dd></div>}
 					<div><dt>Duration</dt><dd>{formatDuration(data.durationSeconds)}</dd></div>
 					<div><dt>Project</dt><dd>{data.projectName ?? 'None'}</dd></div>
 					<div><dt>Client</dt><dd>{data.clientName ?? 'None'}</dd></div>
 					<div><dt>Billability</dt><dd>{data.billable ? 'Billable' : 'Non-billable'}</dd></div>
 					<div><dt>Effective hourly rate</dt><dd>{data.assignedRateOrePerHour === null ? 'No rate' : `${formatSek(data.assignedRateOrePerHour)}/hour`}</dd></div>
 					<div><dt>Billable amount</dt><dd>{formatSek(data.billableAmountOre)}</dd></div>
+					{data.kind === 'timed' && data.allocations.length > 1 ? (
+						<div className="entry-allocation-details">
+							<dt>Daily allocation (Stockholm)</dt>
+							<dd>
+								<ul className="entry-allocation-list">
+									{data.allocations.map((allocation) => (
+										<li key={allocation.localDate} className="entry-summary-values">
+											<time dateTime={allocation.localDate}>{allocation.localDate}</time>
+											<span>{formatDuration(allocation.seconds)}</span>
+											<span>{formatSek(allocation.amountOre)}</span>
+										</li>
+									))}
+								</ul>
+							</dd>
+						</div>
+					) : null}
 				</dl>
 			) : <p role="status">Loading time entry…</p>}
 		</section>

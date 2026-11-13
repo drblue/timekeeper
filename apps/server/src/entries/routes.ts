@@ -1,8 +1,8 @@
 import {
 	ApiErrorResponse,
-	CreateDurationEntryBody,
-	DurationEntryListResponse,
-	DurationEntryResponse,
+	CreateEntryBody,
+	EntryListResponse,
+	EntryResponse,
 	entriesPath,
 	EntryIdParams,
 	EntryListQuery,
@@ -17,7 +17,7 @@ export function registerEntries(app: FastifyInstance, store: EntryStore) {
 		schema: {
 			operationId: 'listEntries',
 			querystring: EntryListQuery,
-			response: { 200: DurationEntryListResponse, ...readErrors },
+			response: { 200: EntryListResponse, ...readErrors },
 		},
 	}, (request) => store.listEntries(request.accountSession!.accountId));
 
@@ -26,19 +26,19 @@ export function registerEntries(app: FastifyInstance, store: EntryStore) {
 			operationId: 'getEntry',
 			params: EntryIdParams,
 			querystring: EntryListQuery,
-			response: { 200: DurationEntryResponse, ...readErrors, 404: ApiErrorResponse },
+			response: { 200: EntryResponse, ...readErrors, 404: ApiErrorResponse },
 		},
 	}, (request) => store.getEntry(request.accountSession!.accountId, request.params.id));
 
-	app.post<{ Body: CreateDurationEntryBody }>(entriesPath, {
+	app.post<{ Body: CreateEntryBody }>(entriesPath, {
 		bodyLimit: 32_768,
 		schema: {
-			operationId: 'createDurationEntry',
-			body: CreateDurationEntryBody,
-			response: { 201: DurationEntryResponse, ...readErrors, 403: ApiErrorResponse, 413: ApiErrorResponse, 422: ApiErrorResponse },
+			operationId: 'createEntry',
+			body: CreateEntryBody,
+			response: { 201: EntryResponse, ...readErrors, 403: ApiErrorResponse, 409: ApiErrorResponse, 413: ApiErrorResponse, 422: ApiErrorResponse },
 		},
 	}, async (request, reply) => {
-		const entry = await store.createDurationEntry(request.accountSession!.accountId, request.body);
+		const entry = await store.createEntry(request.accountSession!.accountId, request.body);
 		return reply.code(201).send(entry);
 	});
 }

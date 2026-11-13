@@ -13,12 +13,12 @@ import {
 	maxEntryDurationSeconds,
 	maxHourlyRateOre,
 	parseAuthSessionResponse,
-	parseDurationEntryListResponse,
-	parseDurationEntryResponse,
+	parseEntryListResponse,
+	parseEntryResponse,
 	parseProjectResponse,
 	projectsPath,
 } from '@timekeeper/contracts';
-import type { CreateDurationEntryBody } from '@timekeeper/contracts';
+import type { CreateDurationEntryBody, CreateTimedEntryBody } from '@timekeeper/contracts';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { openDatabase } from '../src/auth/database.ts';
@@ -41,7 +41,14 @@ function work(overrides: Partial<CreateDurationEntryBody> = {}): CreateDurationE
 	};
 }
 
-describe('Duration-only entries', () => {
+function timed(overrides: Partial<CreateTimedEntryBody> = {}): CreateTimedEntryBody {
+	return {
+		kind: 'timed', description: 'Timed work', startLocal: '2026-11-11T23:30', endLocal: '2026-11-12T00:30',
+		projectId: null, directClientId: null, rateOverrideOrePerHour: null, ...overrides,
+	};
+}
+
+describe('Manual entries', () => {
 	let fixtureDirectory: string;
 	let fixtureFile: string;
 	let directory: string;
@@ -107,7 +114,17 @@ describe('Duration-only entries', () => {
 	async function createEntry(overrides?: Partial<CreateDurationEntryBody>) {
 		const response = await request('POST', entriesPath, work(overrides));
 		expect(response.statusCode, response.body).toBe(201);
-		return parseDurationEntryResponse(response.json());
+		const entry = parseEntryResponse(response.json());
+		if (entry.kind !== 'duration-only') throw new Error('Expected a duration-only entry');
+		return entry;
+	}
+
+	async function createTimedEntry(overrides?: Partial<CreateTimedEntryBody>) {
+		const response = await request('POST', entriesPath, timed(overrides));
+		expect(response.statusCode, response.body).toBe(201);
+		const entry = parseEntryResponse(response.json());
+		if (entry.kind !== 'timed') throw new Error('Expected a timed entry');
+		return entry;
 	}
 
 	async function addClient(name: string, rate?: bigint) {
@@ -131,9 +148,9 @@ describe('Duration-only entries', () => {
 		const detail = await request('GET', `${entriesPath}/${entry.id}`);
 		expect(detail.statusCode).toBe(200);
 		expect(detail.headers['cache-control']).toBe('no-store');
-		expect(parseDurationEntryResponse(detail.json())).toEqual(entry);
+		expect(parseEntryResponse(detail.json())).toEqual(entry);
 		const older = await createEntry({ localDate: '2026-10-24', durationSeconds: 1 });
-		expect(parseDurationEntryListResponse((await request('GET', entriesPath)).json())).toEqual([entry, older]);
+		expect(parseEntryListResponse((await request('GET', entriesPath)).json())).toEqual([entry, older]);
 		expect(await database.entryDayAllocation.findMany({ where: { entryId: entry.id } })).toEqual([
 			{ entryId: entry.id, localDate: '2026-10-25', seconds: 5_400, amountOre: 0n, calculationVersion: 1 },
 		]);
@@ -166,7 +183,7 @@ describe('Duration-only entries', () => {
 		expect(changedProject.statusCode).toBe(200);
 		const archived = await request('POST', `${projectsPath}/${project.id}/archive`, { revision: 2 });
 		expect(archived.statusCode).toBe(200);
-		const detail = parseDurationEntryResponse((await request('GET', `${entriesPath}/${historical.id}`)).json());
+		const detail = parseEntryResponse((await request('GET', `${entriesPath}/${historical.id}`)).json());
 		expect(detail).toEqual({ ...historical, clientName: 'Renamed client', projectName: 'Renamed project' });
 		expect(await database.entryDayAllocation.findMany({ where: { entryId: historical.id } })).toMatchObject([
 			{ amountOre: 120_000n, localDate: historical.localDate, seconds: historical.durationSeconds },
@@ -262,7 +279,7 @@ describe('Duration-only entries', () => {
 			request('PUT', projectUrl, updated),
 		]);
 		expect(entryResponse.statusCode, entryResponse.body).toBe(201);
-		const entry = parseDurationEntryResponse(entryResponse.json());
+		const entry = parseEntryResponse(entryResponse.json());
 		const persisted = await database.project.findUniqueOrThrow({ where: { id: project.id } });
 		expect(entry.clientId).toBe(persisted.clientId);
 		if (reassignment.statusCode === 200) {
@@ -285,13 +302,14 @@ describe('Duration-only entries', () => {
 		const unassigned = await addProject();
 		expect((await request('POST', `${projectsPath}/${unassigned.id}/archive`, { revision: 1 })).statusCode).toBe(200);
 		expect((await request('POST', entriesPath, work({ projectId: unassigned.id, billable: false }))).json()).toMatchObject({ code: 'INVALID_PROJECT' });
-		expect(parseDurationEntryListResponse((await request('GET', entriesPath)).json())).toEqual([entry]);
+		expect(parseEntryListResponse((await request('GET', entriesPath)).json())).toEqual([entry]);
 	});
 
 	it('enforces sessions, CSRF and ownership for entries and both kinds of related ID', async () => {
 		const ownedClient = await addClient('Private client');
 		const ownedProject = await addProject(ownedClient.id, 500n);
 		const ownedEntry = await createEntry({ projectId: ownedProject.id });
+		const ownedTimed = await createTimedEntry({ projectId: ownedProject.id });
 		expect((await app.inject({ url: entriesPath })).statusCode).toBe(401);
 		expect((await app.inject({ ...session, headers: { origin }, method: 'POST', url: entriesPath, payload: work() })).json())
 			.toMatchObject({ code: 'CSRF_REJECTED' });
@@ -304,14 +322,16 @@ describe('Duration-only entries', () => {
 			await database.$executeRaw`PRAGMA ignore_check_constraints = OFF`;
 		}
 		session = await sessionFor(foreignId);
-		expect(parseDurationEntryListResponse((await request('GET', entriesPath)).json())).toEqual([]);
+		expect(parseEntryListResponse((await request('GET', entriesPath)).json())).toEqual([]);
 		const foreignRead = await request('GET', `${entriesPath}/${ownedEntry.id}`);
 		expect(foreignRead.statusCode).toBe(404);
 		expect(foreignRead.json()).toMatchObject({ code: 'NOT_FOUND' });
 		expect((await request('POST', entriesPath, work({ projectId: ownedProject.id }))).json()).toMatchObject({ code: 'INVALID_PROJECT' });
 		expect((await request('POST', entriesPath, work({ directClientId: ownedClient.id }))).json()).toMatchObject({ code: 'INVALID_CLIENT' });
 		const foreignEntry = await createEntry();
-		expect(parseDurationEntryListResponse((await request('GET', entriesPath)).json())).toEqual([foreignEntry]);
+		const foreignTimed = await createTimedEntry();
+		expect(foreignTimed.startAt).toBe(ownedTimed.startAt);
+		expect(parseEntryListResponse((await request('GET', entriesPath)).json())).toEqual([foreignTimed, foreignEntry]);
 		const row = await database.entry.findUniqueOrThrow({ where: { id: ownedEntry.id } });
 		await expect(database.entry.create({ data: { ...row, id: randomUUID(), accountId: foreignId } })).rejects.toMatchObject({ code: 'P2003' });
 		await expect(database.entry.create({ data: {
@@ -325,5 +345,84 @@ describe('Duration-only entries', () => {
 		expect((await request('POST', entriesPath, work())).statusCode).toBe(500);
 		expect(await database.entry.count()).toBe(0);
 		expect(await database.entryDayAllocation.count()).toBe(0);
+	});
+
+	it('stores exact UTC instants and conserves seconds and a rounded öre across midnight', async () => {
+		const ordinary = await createEntry();
+		const entry = await createTimedEntry({ billable: true, rateOverrideOrePerHour: '1' });
+		expect(entry).toMatchObject({
+			startAt: '2026-11-11T22:30:00.000Z', endAt: '2026-11-11T23:30:00.000Z',
+			localDate: '2026-11-11', durationSeconds: 3_600, billableAmountOre: '1',
+			allocations: [{ localDate: '2026-11-11', seconds: 1_800, amountOre: '1' }, { localDate: '2026-11-12', seconds: 1_800, amountOre: '0' }],
+		});
+		expect(parseEntryResponse((await request('GET', `${entriesPath}/${entry.id}`)).json())).toEqual(entry);
+		expect(parseEntryListResponse((await request('GET', entriesPath)).json())).toEqual([entry, ordinary]);
+		expect(await database.entryDayAllocation.findMany({ where: { entryId: entry.id }, orderBy: { localDate: 'asc' } })).toEqual([
+			{ entryId: entry.id, localDate: '2026-11-11', seconds: 1_800, amountOre: 1n, calculationVersion: 1 },
+			{ entryId: entry.id, localDate: '2026-11-12', seconds: 1_800, amountOre: 0n, calculationVersion: 1 },
+		]);
+		const untilMidnight = await createTimedEntry({ startLocal: '2026-11-13T23:59:59', endLocal: '2026-11-14T00:00:00' });
+		expect(untilMidnight).toMatchObject({ durationSeconds: 1, allocations: [{ localDate: '2026-11-13', seconds: 1, amountOre: '0' }] });
+	});
+
+	it('uses actual elapsed time and Stockholm day boundaries across spring and autumn DST', async () => {
+		const spring = await createTimedEntry({ startLocal: '2026-03-28T23:30', endLocal: '2026-03-30T00:30', billable: true, rateOverrideOrePerHour: '3600' });
+		expect(spring).toMatchObject({
+			startAt: '2026-03-28T22:30:00.000Z', endAt: '2026-03-29T22:30:00.000Z', durationSeconds: 86_400, billableAmountOre: '86400',
+			allocations: [
+				{ localDate: '2026-03-28', seconds: 1_800, amountOre: '1800' },
+				{ localDate: '2026-03-29', seconds: 82_800, amountOre: '82800' },
+				{ localDate: '2026-03-30', seconds: 1_800, amountOre: '1800' },
+			],
+		});
+		const autumn = await createTimedEntry({ startLocal: '2026-10-24T23:30', endLocal: '2026-10-26T00:30' });
+		expect(autumn).toMatchObject({
+			startAt: '2026-10-24T21:30:00.000Z', endAt: '2026-10-25T23:30:00.000Z', durationSeconds: 93_600,
+			allocations: [
+				{ localDate: '2026-10-24', seconds: 1_800, amountOre: '0' },
+				{ localDate: '2026-10-25', seconds: 90_000, amountOre: '0' },
+				{ localDate: '2026-10-26', seconds: 1_800, amountOre: '0' },
+			],
+		});
+	});
+
+	it('requires an explicit occurrence for each repeated endpoint and rejects gaps, invalid times and nonpositive ranges', async () => {
+		const repeated = { startLocal: '2026-10-25T02:45', endLocal: '2026-10-25T02:15' };
+		for (const [overrides, code, field] of [
+			[repeated, 'AMBIGUOUS_LOCAL_TIME', 'startOccurrence'],
+			[{ ...repeated, startOccurrence: 'earlier' }, 'AMBIGUOUS_LOCAL_TIME', 'endOccurrence'],
+			[{ startLocal: '2026-03-29T02:30' }, 'NONEXISTENT_LOCAL_TIME', 'startLocal'],
+			[{ endLocal: '2026-03-29T02:30' }, 'NONEXISTENT_LOCAL_TIME', 'endLocal'],
+			[{ startLocal: '2026-02-29T12:00' }, 'INVALID_LOCAL_TIME', 'startLocal'],
+			[{ startLocal: '2026-11-11T23:59:60' }, 'INVALID_LOCAL_TIME', 'startLocal'],
+			[{ startLocal: '2026-11-12T00:30' }, 'INVALID_TIME_RANGE', 'endLocal'],
+			[{ startLocal: '2026-11-12T00:31' }, 'INVALID_TIME_RANGE', 'endLocal'],
+			[{ startLocal: '1900-01-01T00:00' }, 'INVALID_DURATION', 'endLocal'],
+		] as const) {
+			const rejected = await request('POST', entriesPath, timed(overrides));
+			expect(rejected.statusCode, rejected.body).toBe(422);
+			expect(rejected.json()).toMatchObject({ code, fieldErrors: [{ field: `body/${field}` }] });
+		}
+		expect(await database.entry.count()).toBe(0);
+		const entry = await createTimedEntry({ ...repeated, startOccurrence: 'earlier', endOccurrence: 'later' });
+		expect(entry).toMatchObject({ startAt: '2026-10-25T00:45:00.000Z', endAt: '2026-10-25T01:15:00.000Z', durationSeconds: 1_800 });
+	});
+
+	it('warns on real half-open overlaps, accepts confirmation, and ignores duration-only work', async () => {
+		await createEntry({ localDate: '2026-11-11' });
+		await createTimedEntry();
+		const adjacent = await createTimedEntry({ startLocal: '2026-11-12T00:30', endLocal: '2026-11-12T01:00' });
+		expect(adjacent.durationSeconds).toBe(1_800);
+		const overlap = timed({ startLocal: '2026-11-12T00:00', endLocal: '2026-11-12T00:31' });
+		const rejected = await request('POST', entriesPath, overlap);
+		expect(rejected.statusCode).toBe(409);
+		expect(rejected.json()).toMatchObject({ code: 'ENTRY_OVERLAP' });
+		expect(await database.entry.count()).toBe(3);
+		expect(await database.entryDayAllocation.count()).toBe(4);
+		await createTimedEntry({ ...overlap, confirmOverlap: true });
+		expect(await database.entry.count()).toBe(4);
+		const next = timed({ startLocal: '2026-11-12T14:00', endLocal: '2026-11-12T15:00' });
+		const competing = await Promise.all([request('POST', entriesPath, next), request('POST', entriesPath, next)]);
+		expect(competing.map(({ statusCode }) => statusCode).sort()).toEqual([201, 409]);
 	});
 });

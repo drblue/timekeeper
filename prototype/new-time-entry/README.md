@@ -4,7 +4,7 @@ Open [index.html](index.html) in a browser. Use the preview controls on a wide s
 
 Try both entry types. Duration only takes a work date and an editable duration. Timed entries use Stockholm start and end dates and times. Editing Duration recalculates End. Editing End recalculates Duration. When Start changes, the form preserves whichever of End or Duration was last edited. Try overnight and Try clock change load examples of a next-day end and a repeated local time.
 
-The draft is for reviewing layout, wording, and interaction before [issue #7](https://github.com/drblue/timekeeper/issues/7). The standalone time calculations are illustrative. Production time resolution and persistence belong to that issue.
+This is the original design draft for [issue #7](https://github.com/drblue/timekeeper/issues/7). The app editor is the current version, including compact numeric input, Stockholm time resolution, and persistence.
 
 ## Review record
 

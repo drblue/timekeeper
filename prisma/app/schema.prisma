@@ -75,6 +75,8 @@ model Entry {
 	kind                   String
 	description            String
 	localDate              String
+	startAt                DateTime?
+	endAt                  DateTime?
 	durationSeconds        Int
 	projectId              String?
 	project                Project?             @relation(fields: [accountId, projectId], references: [accountId, id], onDelete: Restrict)
@@ -90,6 +92,7 @@ model Entry {
 	@@index([accountId, localDate, createdAt])
 	@@index([accountId, projectId])
 	@@index([accountId, directClientId])
+	@@index([accountId, startAt, endAt])
 }
 
 model EntryDayAllocation {
