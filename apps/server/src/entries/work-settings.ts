@@ -77,14 +77,18 @@ export async function billingDefaults(
 	return { billable: false, rateOrePerHour: null };
 }
 
+export function validateWorkAssociation(projectId: string | null, directClientId: string | null) {
+	if (projectId !== null && directClientId !== null) {
+		throw new ApiRequestError(422, 'INVALID_ASSOCIATION', 'Choose a project or a direct client.', 'directClientId');
+	}
+}
+
 export async function resolveWorkSettings(
 	transaction: Prisma.TransactionClient, accountId: string, input: WorkSettingsInput, allowEmptyDescription = false,
 ): Promise<WorkSettings> {
 	const { projectId, directClientId } = input;
 	const description = workDescription(input.description ?? '', allowEmptyDescription);
-	if (projectId !== null && directClientId !== null) {
-		throw new ApiRequestError(422, 'INVALID_ASSOCIATION', 'Choose a project or a direct client.', 'directClientId');
-	}
+	validateWorkAssociation(projectId, directClientId);
 	const rateOverride = parseHourlyRateOre(input.rateOverrideOrePerHour, 'rateOverrideOrePerHour');
 	const defaults = await billingDefaults(transaction, accountId, projectId, directClientId);
 	return {

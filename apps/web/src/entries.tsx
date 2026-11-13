@@ -9,6 +9,7 @@ import { EntryCompletion } from './entry-completion';
 import { EntryContinue } from './entry-continue';
 import { entriesKey } from './entry-query';
 import { displayClock } from './entry-time';
+import { EntryHistory } from './entry-history';
 import { EntryEditor } from './entry-editor';
 import { formatSek } from './money';
 
@@ -110,7 +111,8 @@ export function EntryDetail() {
 	const { entryId } = entryDetailRoute.useParams();
 	const { refresh } = useSession();
 	const queryClient = useQueryClient();
-	const [completedId, setCompletedId] = useState<string | null>(null);
+	const [feedback, setFeedback] = useState<{ id: string; text: string } | null>(null);
+	const [editingEntry, setEditingEntry] = useState<EntryResponse | null>(null);
 	const heading = useRef<HTMLHeadingElement>(null);
 	const focusHeading = useCallback(() => heading.current?.focus(), []);
 	const entry = useQuery({
@@ -122,9 +124,11 @@ export function EntryDetail() {
 	const missing = entry.error instanceof ApiRequestError && entry.error.response.status === 404;
 	const data = entry.data;
 
-	function completed(saved: EntryResponse) {
+	function savedEntry(saved: EntryResponse, text: string) {
 		queryClient.setQueryData([...entriesKey, entryId], saved);
-		setCompletedId(saved.id);
+		setFeedback({ id: saved.id, text });
+		setEditingEntry(null);
+		focusHeading();
 		void queryClient.invalidateQueries({ queryKey: entriesKey });
 	}
 
@@ -132,7 +136,7 @@ export function EntryDetail() {
 		<section className="entry-page" aria-labelledby="entry-heading">
 			<div><Link to="/entries">Back to time entries</Link></div>
 			<h1 className="entry-heading" id="entry-heading" ref={heading} tabIndex={-1}>{data?.description || (data ? 'Untitled time entry' : 'Time entry')}</h1>
-			{completedId === entryId ? <p className="feedback" role="status">Time entry completed.</p> : null}
+			{feedback?.id === entryId ? <p className="feedback" role="status">{feedback.text}</p> : null}
 			{entry.isError ? (
 				<div className="feedback error catalog-load-error">
 					<p role="alert">{missing ? 'This time entry is unavailable.' : 'Could not load this time entry. Check your connection and try again.'}</p>
@@ -175,9 +179,24 @@ export function EntryDetail() {
 							</div>
 						) : null}
 					</dl>
-					<EntryContinue key={entryId} entryId={entryId} onFallbackFocus={focusHeading} />
-					{data.completion === 'incomplete' ? <EntryCompletion key={entryId} entry={data} onSaved={completed}
-						onRefresh={() => void entry.refetch()} /> : null}
+					{editingEntry?.id === entryId ? (
+						<EntryEditor key={'editor:' + entryId} entry={editingEntry} onClose={() => { setEditingEntry(null); focusHeading(); }}
+							onSaved={(saved) => savedEntry(saved, 'Time entry updated.')} />
+					) : (
+						<>
+							{data.invoicedAt ? (
+								<p className="feedback warning">This entry is invoiced. Unmark it before editing.</p>
+							) : data.completion === 'complete' ? (
+								<div className="form-actions">
+									<button type="button" onClick={() => { setFeedback(null); setEditingEntry(data); }}>Edit entry</button>
+								</div>
+							) : null}
+							<EntryContinue key={'continue:' + entryId} entryId={entryId} onFallbackFocus={focusHeading} />
+							{data.completion === 'incomplete' && !data.invoicedAt ? <EntryCompletion key={'completion:' + entryId} entry={data}
+								onSaved={(saved) => savedEntry(saved, 'Time entry completed.')} onRefresh={() => void entry.refetch()} /> : null}
+						</>
+					)}
+					<EntryHistory key={'history:' + entryId} entryId={entryId} />
 				</>
 			) : entry.isPending ? <p role="status">Loading time entry…</p> : null}
 		</section>

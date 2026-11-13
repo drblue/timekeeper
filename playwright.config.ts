@@ -4,11 +4,13 @@ const host = '127.0.0.1';
 const catalogSpecs = '**/catalog.spec.ts';
 const entrySpecs = '**/entries.spec.ts';
 const transitionSpecs = '**/timer-transitions.spec.ts';
+const correctionSpecs = '**/entry-corrections.spec.ts';
 const suites = [
-	{ prefix: '', firstPort: 4317, filter: { testIgnore: [catalogSpecs, entrySpecs, transitionSpecs] } },
+	{ prefix: '', firstPort: 4317, filter: { testIgnore: [catalogSpecs, entrySpecs, transitionSpecs, correctionSpecs] } },
 	{ prefix: 'catalog-', firstPort: 4319, filter: { testMatch: catalogSpecs } },
 	{ prefix: 'entries-', firstPort: 4321, filter: { testMatch: entrySpecs } },
 	{ prefix: 'transitions-', firstPort: 4323, filter: { testMatch: transitionSpecs } },
+	{ prefix: 'corrections-', firstPort: 4325, filter: { testMatch: correctionSpecs } },
 ];
 const viewports = [
 	{ name: 'desktop', use: { viewport: { width: 1280, height: 800 } } },

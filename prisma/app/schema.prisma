@@ -90,6 +90,7 @@ model Entry {
 	assignedRateOrePerHour BigInt?
 	billableAmountOre      BigInt?
 	completion             String               @default("complete")
+	invoicedAt             DateTime?
 	revision               Int                  @default(1)
 	createdAt              DateTime             @default(now())
 	allocations            EntryDayAllocation[]

@@ -115,16 +115,21 @@ export function resolveBoundary(boundary: EntryBoundary): BoundaryResolution {
 	};
 }
 
+export function boundaryFromInstant(instant: string): EntryBoundary {
+	const { local } = formatStockholmLocalTime(instant);
+	const [date = '', time = ''] = local.split('T');
+	const resolved = resolveStockholmLocalTime(local);
+	const occurrence = resolved.status === 'ambiguous'
+		? resolved.earlier.instant === instant ? 'earlier' : 'later'
+		: undefined;
+	return { date, time: displayClock(time), occurrence };
+}
+
 function computedEnd(start: string, duration: number): EntryBoundary | undefined {
 	try {
 		const instant = new Date(Date.parse(start) + duration * 1000).toISOString();
-		const { local } = formatStockholmLocalTime(instant);
-		const [date = '', time = ''] = local.split('T');
-		const resolved = resolveStockholmLocalTime(local);
-		if (resolved.status === 'valid') return { date, time: displayClock(time) };
-		if (resolved.status === 'ambiguous') {
-			return { date, time: displayClock(time), occurrence: resolved.earlier.instant === instant ? 'earlier' : 'later' };
-		}
+		const end = boundaryFromInstant(instant);
+		if (resolveBoundary(end).instant) return end;
 	} catch (error) {
 		if (!(error instanceof RangeError)) throw error;
 	}

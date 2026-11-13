@@ -14,11 +14,13 @@ import {
 	maxHourlyRateOre,
 	parseAuthSessionResponse,
 	parseEntryListResponse,
+	parseEntryEditPreview,
+	parseEntryHistoryResponse,
 	parseEntryResponse,
 	parseProjectResponse,
 	projectsPath,
 } from '@timekeeper/contracts';
-import type { CreateDurationEntryBody, CreateTimedEntryBody } from '@timekeeper/contracts';
+import type { CreateDurationEntryBody, CreateTimedEntryBody, EntryEditBody, EntryResponse } from '@timekeeper/contracts';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { openDatabase } from '../src/auth/database.ts';
@@ -125,6 +127,11 @@ describe('Manual entries', () => {
 		const entry = parseEntryResponse(response.json());
 		if (entry.kind !== 'timed') throw new Error('Expected a timed entry');
 		return entry;
+	}
+
+	function change(entry: EntryResponse, overrides: Partial<EntryEditBody> = {}): EntryEditBody {
+		const { description, projectId, directClientId, billable, revision } = entry;
+		return { description, projectId, directClientId, billable, revision, ...overrides };
 	}
 
 	async function addClient(name: string, rate?: bigint) {
@@ -327,6 +334,11 @@ describe('Manual entries', () => {
 		const foreignRead = await request('GET', `${entriesPath}/${ownedEntry.id}`);
 		expect(foreignRead.statusCode).toBe(404);
 		expect(foreignRead.json()).toMatchObject({ code: 'NOT_FOUND' });
+		for (const attempted of [
+			request('GET', `${entriesPath}/${ownedEntry.id}/history`),
+			request('POST', `${entriesPath}/${ownedEntry.id}/edit-preview`, change(ownedEntry)),
+			request('PUT', `${entriesPath}/${ownedEntry.id}`, change(ownedEntry)),
+		]) expect((await attempted).statusCode).toBe(404);
 		expect((await request('POST', entriesPath, work({ projectId: ownedProject.id }))).json()).toMatchObject({ code: 'INVALID_PROJECT' });
 		expect((await request('POST', entriesPath, work({ directClientId: ownedClient.id }))).json()).toMatchObject({ code: 'INVALID_CLIENT' });
 		const foreignEntry = await createEntry();
@@ -425,5 +437,120 @@ describe('Manual entries', () => {
 		const next = timed({ startLocal: '2026-11-12T14:00', endLocal: '2026-11-12T15:00' });
 		const competing = await Promise.all([request('POST', entriesPath, next), request('POST', entriesPath, next)]);
 		expect(competing.map(({ statusCode }) => statusCode).sort()).toEqual([201, 409]);
+	});
+
+	it('keeps the assigned rate and saved split amount for irrelevant changes, and redistributes saved total on a date move', async () => {
+		const client = await addClient('Current', 80_000n);
+		const source = await createEntry({ directClientId: client.id, durationSeconds: 1_800 });
+		const url = `${entriesPath}/${source.id}`;
+		// Model an existing split child whose preserved allocation differs from independently rounding its duration and rate.
+		await database.entry.update({ where: { id: source.id }, data: { billableAmountOre: 39_999n } });
+		await database.entryDayAllocation.updateMany({ where: { entryId: source.id }, data: { amountOre: 39_999n, calculationVersion: 2 } });
+		await database.client.update({ where: { id: client.id }, data: { archivedAt: new Date(), defaultRateOrePerHour: 90_000n } });
+		const timing = { kind: 'duration-only', localDate: source.localDate, durationSeconds: source.durationSeconds } as const;
+		const noOp = await request('PUT', url, change(source, { time: timing, rate: { mode: 'override', rateOrePerHour: '80000' } }));
+		expect(noOp.statusCode).toBe(200);
+		expect(parseEntryResponse(noOp.json())).toMatchObject({ revision: 1, assignedRateOrePerHour: '80000', billableAmountOre: '39999' });
+		expect(await database.entryHistory.count({ where: { entryId: source.id } })).toBe(1);
+		const renamed = await request('PUT', url, change(source, { description: 'Corrected description' }));
+		expect(renamed.statusCode).toBe(200);
+		const renamedEntry = parseEntryResponse(renamed.json());
+		expect(renamedEntry).toMatchObject({ revision: 2, assignedRateOrePerHour: '80000', billableAmountOre: '39999' });
+		expect(await database.entryDayAllocation.findMany({ where: { entryId: source.id } })).toMatchObject([
+			{ localDate: source.localDate, seconds: 1_800, amountOre: 39_999n, calculationVersion: 2 },
+		]);
+		const moved = change(renamedEntry, { time: { ...timing, localDate: '2026-10-26' } });
+		const preview = await request('POST', `${url}/edit-preview`, moved);
+		expect(preview.statusCode).toBe(200);
+		expect(parseEntryEditPreview(preview.json())).toEqual({ durationSeconds: 1_800, assignedRateOrePerHour: '80000', billableAmountOre: '39999', overlap: false });
+		expect((await database.entry.findUniqueOrThrow({ where: { id: source.id } })).revision).toBe(2);
+		const saved = await request('PUT', url, moved);
+		expect(saved.statusCode).toBe(200);
+		expect(await database.entryDayAllocation.findMany({ where: { entryId: source.id } })).toMatchObject([
+			{ localDate: '2026-10-26', seconds: 1_800, amountOre: 39_999n, calculationVersion: 1 },
+		]);
+		const history = parseEntryHistoryResponse((await request('GET', `${url}/history`)).json());
+		expect(history).toMatchObject([
+			{ action: 'edited', before: { revision: 2, localDate: source.localDate }, after: { revision: 3, localDate: '2026-10-26' } },
+			{ action: 'edited', before: { description: source.description, revision: 1 }, after: { description: 'Corrected description', revision: 2 } },
+			{ action: 'created', before: null, after: source },
+		]);
+	});
+
+	it('keeps the saved rate on reassignment and rechecks an explicitly selected current default at save', async () => {
+		const first = await addClient('Original', 80_000n);
+		const second = await addClient('Replacement', 90_000n);
+		const target = await addProject(second.id);
+		const source = await createEntry({ directClientId: first.id });
+		const url = `${entriesPath}/${source.id}`;
+		const reassigned = change(source, { directClientId: null, projectId: target.id });
+		const saved = await request('PUT', url, reassigned);
+		expect(saved.statusCode).toBe(200);
+		const entry = parseEntryResponse(saved.json());
+		expect(entry).toMatchObject({ revision: 2, clientId: second.id, assignedRateOrePerHour: '80000', billableAmountOre: '120000' });
+		const currentRate = change(entry, { rate: { mode: 'current', expectedDefaultRateOrePerHour: '90000' } });
+		expect(parseEntryEditPreview((await request('POST', `${url}/edit-preview`, currentRate)).json())).toMatchObject({ billableAmountOre: '135000' });
+		await database.client.update({ where: { id: second.id }, data: { defaultRateOrePerHour: 95_000n } });
+		expect((await request('PUT', url, currentRate)).json()).toMatchObject({ code: 'ENTRY_DEFAULT_RATE_CHANGED' });
+		const contenders = await Promise.all([
+			request('PUT', url, change(entry, { rate: { mode: 'override', rateOrePerHour: '0' } })),
+			request('PUT', url, change(entry, { description: 'Another device' })),
+		]);
+		expect(contenders.map(({ statusCode }) => statusCode).sort()).toEqual([200, 409]);
+		expect(contenders.find(({ statusCode }) => statusCode === 409)?.json()).toMatchObject({ code: 'REVISION_CONFLICT' });
+		const winner = parseEntryResponse(contenders.find(({ statusCode }) => statusCode === 200)!.json());
+		const zero = await request('PUT', url, change(winner, { rate: { mode: 'override', rateOrePerHour: '0' } }));
+		expect(parseEntryResponse(zero.json())).toMatchObject({ assignedRateOrePerHour: '0', billableAmountOre: '0' });
+	});
+
+	it('converts both ways, requires overlap confirmation for a changed interval, and rolls back failed allocation rebuilds', async () => {
+		await createTimedEntry();
+		const source = await createEntry({ durationSeconds: 1_800, billable: true, rateOverrideOrePerHour: '3600' });
+		const url = `${entriesPath}/${source.id}`;
+		const payload = change(source, { time: { kind: 'timed', startLocal: '2026-11-11T23:45', endLocal: '2026-11-12T00:45' } });
+		const preview = await request('POST', `${url}/edit-preview`, payload);
+		expect(parseEntryEditPreview(preview.json())).toEqual({ durationSeconds: 3_600, assignedRateOrePerHour: '3600', billableAmountOre: '3600', overlap: true });
+		expect((await request('PUT', url, payload)).json()).toMatchObject({ code: 'ENTRY_OVERLAP' });
+		await database.$executeRaw`CREATE TRIGGER "test_edit_fail_allocation" BEFORE INSERT ON "EntryDayAllocation"
+			BEGIN SELECT RAISE(ABORT, 'Test allocation failure'); END`;
+		expect((await request('PUT', url, { ...payload, confirmOverlap: true })).statusCode).toBe(500);
+		expect(parseEntryResponse((await request('GET', url)).json())).toEqual(source);
+		expect(await database.entryDayAllocation.count({ where: { entryId: source.id } })).toBe(1);
+		expect(await database.entryHistory.count({ where: { entryId: source.id } })).toBe(1);
+		await database.$executeRaw`DROP TRIGGER "test_edit_fail_allocation"`;
+		const convertedResponse = await request('PUT', url, { ...payload, confirmOverlap: true });
+		expect(convertedResponse.statusCode).toBe(200);
+		const converted = parseEntryResponse(convertedResponse.json());
+		expect(converted).toMatchObject({ id: source.id, kind: 'timed', revision: 2, allocations: [
+			{ localDate: '2026-11-11', seconds: 900, amountOre: '900' }, { localDate: '2026-11-12', seconds: 2_700, amountOre: '2700' },
+		] });
+		const back = await request('PUT', url, change(converted, {
+			time: { kind: 'duration-only', localDate: '2026-11-13', durationSeconds: 3_600 }, billable: false,
+		}));
+		expect(parseEntryResponse(back.json())).toMatchObject({ id: source.id, revision: 3, kind: 'duration-only', billableAmountOre: '0', assignedRateOrePerHour: '3600' });
+		expect(await database.entryDayAllocation.findMany({ where: { entryId: source.id } })).toMatchObject([
+			{ localDate: '2026-11-13', seconds: 3_600, amountOre: 0n },
+		]);
+	});
+
+	it('guards invoiced work for preview, edit and incomplete completion without hiding history', async () => {
+		const source = await createTimedEntry({ billable: true, rateOverrideOrePerHour: '1' });
+		const invoicedAt = new Date('2026-11-30T12:00:00.000Z');
+		await database.entry.update({ where: { id: source.id }, data: { invoicedAt } });
+		const url = `${entriesPath}/${source.id}`;
+		expect(parseEntryResponse((await request('GET', url)).json())).toMatchObject({ invoicedAt: invoicedAt.toISOString() });
+		const edit = change(source, { description: 'Unauthorized correction' });
+		for (const attempted of [request('POST', `${url}/edit-preview`, edit), request('PUT', url, edit)]) {
+			const response = await attempted;
+			expect(response.statusCode).toBe(409);
+			expect(response.json()).toMatchObject({ code: 'ENTRY_INVOICED' });
+		}
+		const history = parseEntryHistoryResponse((await request('GET', `${url}/history`)).json());
+		expect(history).toMatchObject([{ action: 'created', after: source }]);
+		await database.entryDayAllocation.deleteMany({ where: { entryId: source.id } });
+		await database.entry.update({ where: { id: source.id }, data: { completion: 'incomplete', billableAmountOre: null, description: '' } });
+		const completion = await request('POST', `${url}/complete`, { revision: source.revision, description: 'Complete', rateOverrideOrePerHour: null });
+		expect(completion.statusCode).toBe(409);
+		expect(completion.json()).toMatchObject({ code: 'ENTRY_INVOICED' });
 	});
 });

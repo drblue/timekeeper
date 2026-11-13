@@ -14,6 +14,7 @@ export const EntryInstant = Type.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T
 const Occurrence = Type.Optional(Type.Union([Type.Literal('earlier'), Type.Literal('later')]));
 const DurationSeconds = Type.Integer({ minimum: 1, maximum: maxEntryDurationSeconds });
 const strict = { additionalProperties: false };
+const Timestamp = Type.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{3}Z$' });
 
 export const EntryIdParams = Type.Object({ id: Uuid }, strict);
 export const EntryListQuery = Type.Object({}, strict);
@@ -25,19 +26,22 @@ const entryInput = {
 	billable: Type.Optional(Type.Boolean()),
 };
 
-export const CreateDurationEntryBody = Type.Object({
+const durationTime = {
 	kind: Type.Literal('duration-only'),
-	...entryInput,
 	localDate: LocalDate,
 	durationSeconds: DurationSeconds,
-}, strict);
-export const CreateTimedEntryBody = Type.Object({
+};
+const timedTime = {
 	kind: Type.Literal('timed'),
-	...entryInput,
 	startLocal: LocalDateTime,
 	endLocal: LocalDateTime,
 	startOccurrence: Occurrence,
 	endOccurrence: Occurrence,
+};
+export const CreateDurationEntryBody = Type.Object({ ...durationTime, ...entryInput }, strict);
+export const CreateTimedEntryBody = Type.Object({
+	...timedTime,
+	...entryInput,
 	confirmOverlap: Type.Optional(Type.Boolean()),
 }, strict);
 export const CreateEntryBody = Type.Union([CreateDurationEntryBody, CreateTimedEntryBody]);
@@ -57,6 +61,7 @@ const entryOutput = {
 	assignedRateOrePerHour: NullableHourlyRate,
 	billableAmountOre: Ore,
 	revision: Revision,
+	invoicedAt: Type.Optional(Timestamp),
 };
 
 export const DurationEntryResponse = Type.Object({
@@ -95,6 +100,34 @@ export const CompleteEntryBody = Type.Object({
 	billable: Type.Optional(Type.Boolean()),
 	durationSeconds: Type.Optional(DurationSeconds),
 }, strict);
+export const EntryEditTime = Type.Union([Type.Object(durationTime, strict), Type.Object(timedTime, strict)]);
+export const EntryEditBody = Type.Object({
+	revision: Revision,
+	description: entryInput.description,
+	projectId: NullableUuid,
+	directClientId: NullableUuid,
+	billable: Type.Boolean(),
+	rate: Type.Optional(Type.Union([
+		Type.Object({ mode: Type.Literal('keep') }, strict),
+		Type.Object({ mode: Type.Literal('current'), expectedDefaultRateOrePerHour: NullableHourlyRate }, strict),
+		Type.Object({ mode: Type.Literal('override'), rateOrePerHour: Ore }, strict),
+	])),
+	time: Type.Optional(EntryEditTime),
+	confirmOverlap: Type.Optional(Type.Boolean()),
+}, strict);
+export const EntryEditPreview = Type.Object({
+	durationSeconds: DurationSeconds,
+	billableAmountOre: Ore,
+	assignedRateOrePerHour: NullableHourlyRate,
+	overlap: Type.Boolean(),
+}, strict);
+export const EntryHistoryResponse = Type.Array(Type.Object({
+	id: Uuid,
+	action: Type.Union([Type.Literal('created'), Type.Literal('completed'), Type.Literal('edited')]),
+	at: Timestamp,
+	before: Type.Union([EntryResponse, Type.Null()]),
+	after: EntryResponse,
+}, strict));
 
 export type EntryIdParams = Static<typeof EntryIdParams>;
 export type CreateDurationEntryBody = Static<typeof CreateDurationEntryBody>;
@@ -105,6 +138,10 @@ export type TimedEntryResponse = Static<typeof TimedEntryResponse>;
 export type IncompleteEntryResponse = Static<typeof IncompleteEntryResponse>;
 export type CompleteEntryBody = Static<typeof CompleteEntryBody>;
 export type EntryResponse = Static<typeof EntryResponse>;
+export type EntryEditTime = Static<typeof EntryEditTime>;
+export type EntryEditBody = Static<typeof EntryEditBody>;
+export type EntryEditPreview = Static<typeof EntryEditPreview>;
+export type EntryHistoryResponse = Static<typeof EntryHistoryResponse>;
 
 export function parseEntryResponse(value: unknown): EntryResponse {
 	if (!Value.Check(EntryResponse, value)) {
@@ -117,5 +154,15 @@ export function parseEntryListResponse(value: unknown): EntryResponse[] {
 	if (!Value.Check(EntryListResponse, value)) {
 		throw new Error('Invalid entry list response');
 	}
+	return value;
+}
+
+export function parseEntryEditPreview(value: unknown): EntryEditPreview {
+	if (!Value.Check(EntryEditPreview, value)) throw new Error('Invalid entry edit preview');
+	return value;
+}
+
+export function parseEntryHistoryResponse(value: unknown): EntryHistoryResponse {
+	if (!Value.Check(EntryHistoryResponse, value)) throw new Error('Invalid entry history response');
 	return value;
 }

@@ -1,5 +1,5 @@
 import { formatStockholmLocalTime, maxEntryDurationSeconds, nextStockholmDayStart, resolveStockholmLocalTime } from '@timekeeper/contracts';
-import type { CreateTimedEntryBody, LocalTimeOccurrence } from '@timekeeper/contracts';
+import type { EntryEditTime, LocalTimeOccurrence } from '@timekeeper/contracts';
 import { ApiRequestError } from '../api-error.ts';
 
 export interface EntryDaySegment {
@@ -47,7 +47,7 @@ export function timedInterval(startAt: Date, endAt: Date, allowEmpty = false) {
 	return { startAt, endAt, localDate, durationSeconds, segments };
 }
 
-export function manualTimedInterval(input: CreateTimedEntryBody) {
+export function manualTimedInterval(input: Extract<EntryEditTime, { kind: 'timed' }>) {
 	return timedInterval(
 		new Date(resolveInstant(input.startLocal, input.startOccurrence, 'start')),
 		new Date(resolveInstant(input.endLocal, input.endOccurrence, 'end')),

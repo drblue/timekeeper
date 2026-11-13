@@ -1,9 +1,8 @@
-import { createRootRoute, createRoute, createRouter, Link, Navigate, Outlet } from '@tanstack/react-router';
+import { createRootRoute, createRoute, createRouter, lazyRouteComponent, Link, Navigate, Outlet } from '@tanstack/react-router';
 import { authLogoutPath } from '@timekeeper/contracts';
 import { useState } from 'react';
-import { authError, postAuth, SessionContext, useReplaceSession, useSession, useSessionQuery } from './auth';
 import { Clients, Projects } from './catalog-page';
-import { Entries, EntryDetail } from './entries';
+import { authError, postAuth, SessionContext, useReplaceSession, useSession, useSessionQuery } from './auth';
 import { Home } from './home';
 import { Login } from './login';
 import { Password } from './password';
@@ -129,12 +128,12 @@ const projectsRoute = createRoute({
 const entriesRoute = createRoute({
 	getParentRoute: () => protectedRoute,
 	path: '/entries',
-	component: Entries,
+	component: lazyRouteComponent(() => import('./entries'), 'Entries'),
 });
 const entryDetailRoute = createRoute({
 	getParentRoute: () => protectedRoute,
 	path: '/entries/$entryId',
-	component: EntryDetail,
+	component: lazyRouteComponent(() => import('./entries'), 'EntryDetail'),
 });
 
 export const router = createRouter({

@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { CompleteEntryBody, CreateEntryBody, EntryResponse, IncompleteEntryResponse, TimedEntryResponse } from '@timekeeper/contracts';
+import { parseEntryResponse } from '@timekeeper/contracts';
+import type { CompleteEntryBody, CreateEntryBody, EntryEditBody, EntryEditPreview, EntryEditTime, EntryHistoryResponse, EntryResponse, IncompleteEntryResponse, TimedEntryResponse } from '@timekeeper/contracts';
 import { writeForAccount } from '../account-write.ts';
 import { ApiRequestError } from '../api-error.ts';
 import { calculateBillableAmountOre, maxStoredOre, parseHourlyRateOre } from '../billing.ts';
 import type { Prisma, PrismaClient } from '../generated/prisma/client.ts';
 import { allocateEntryAmount, manualTimedInterval, timedInterval } from './timed-entry.ts';
 import type { EntryDaySegment } from './timed-entry.ts';
-import { resolveWorkSettings, workAssociation, workDescription, workRelations } from './work-settings.ts';
+import { billingDefaults, resolveWorkSettings, validateWorkAssociation, workAssociation, workDescription, workRelations } from './work-settings.ts';
 import type { WorkSettings } from './work-settings.ts';
 
 const allocationCalculationVersion = 1;
@@ -27,6 +28,7 @@ function entryResponse(entry: EntryWithRelations): EntryResponse {
 		billable: entry.billable,
 		assignedRateOrePerHour: entry.assignedRateOrePerHour?.toString() ?? null,
 		revision: entry.revision,
+		...(entry.invoicedAt ? { invoicedAt: entry.invoicedAt.toISOString() } : {}),
 	};
 	if (entry.kind === 'duration-only' && entry.completion === 'complete' && entry.billableAmountOre !== null) {
 		return { kind: entry.kind, completion: 'complete', ...fields, billableAmountOre: entry.billableAmountOre.toString() };
@@ -62,7 +64,7 @@ function checkLocalDate(localDate: string) {
 	}
 }
 
-function entryTime(input: CreateEntryBody) {
+function entryTime(input: EntryEditTime): EntryTime {
 	if (input.kind === 'timed') return manualTimedInterval(input);
 	const { localDate, durationSeconds } = input;
 	checkLocalDate(localDate);
@@ -110,7 +112,7 @@ interface EntryTime {
 }
 
 async function recordHistory(
-	transaction: Prisma.TransactionClient, action: 'created' | 'completed', at: Date,
+	transaction: Prisma.TransactionClient, action: EntryHistoryResponse[number]['action'], at: Date,
 	after: EntryResponse, before?: EntryResponse, operationKey?: string,
 ) {
 	await transaction.entryHistory.create({ data: {
@@ -118,6 +120,106 @@ async function recordHistory(
 		beforeSnapshot: before ? JSON.stringify({ version: 1, entry: before }) : null,
 		afterSnapshot: JSON.stringify({ version: 1, entry: after }),
 	} });
+}
+
+function readHistorySnapshot(snapshot: string, id: string): EntryResponse {
+	const parsed: unknown = JSON.parse(snapshot);
+	if (!parsed || typeof parsed !== 'object' || !('version' in parsed) || parsed.version !== 1 || !('entry' in parsed)) {
+		throw new Error('Invalid time entry history snapshot');
+	}
+	const entry = parseEntryResponse(parsed.entry);
+	if (entry.id !== id) throw new Error('Time entry history refers to another entry');
+	return entry;
+}
+
+async function editableEntry(transaction: Prisma.TransactionClient, accountId: string, id: string, revision: number) {
+	const current = await transaction.entry.findUnique({ where: { id, accountId }, include: entryRelations });
+	if (!current) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
+	if (current.invoicedAt) throw new ApiRequestError(409, 'ENTRY_INVOICED', 'Unmark this entry as invoiced before editing it.');
+	if (current.revision !== revision) throw new ApiRequestError(409, 'REVISION_CONFLICT', 'Time entry changed. Reload and try again.');
+	return current;
+}
+
+function savedTime(current: EntryWithRelations): EntryTime {
+	if (current.startAt && current.endAt) return timedInterval(current.startAt, current.endAt);
+	const { localDate, durationSeconds } = current;
+	return { localDate, durationSeconds, startAt: null, endAt: null, segments: [{ localDate, seconds: durationSeconds }] };
+}
+
+async function overlappingEntry(transaction: Prisma.TransactionClient, accountId: string, time: EntryTime, except?: string) {
+	if (!time.startAt || !time.endAt) return false;
+	return Boolean(await transaction.entry.findFirst({
+		where: { accountId, id: except ? { not: except } : undefined, kind: 'timed', durationSeconds: { gt: 0 },
+			startAt: { lt: time.endAt }, endAt: { gt: time.startAt } },
+		select: { id: true },
+	}));
+}
+
+function requireOverlapConfirmation(overlap: boolean, confirmed: boolean | undefined) {
+	if (overlap && !confirmed) {
+		throw new ApiRequestError(409, 'ENTRY_OVERLAP', 'The time overlaps recorded work. Confirm to save this entry.');
+	}
+}
+
+async function prepareEdit(
+	transaction: Prisma.TransactionClient, accountId: string, current: EntryWithRelations, input: EntryEditBody, proposedTime: EntryTime | undefined,
+) {
+	const { projectId, directClientId, billable, rate } = input;
+	const description = workDescription(input.description);
+	validateWorkAssociation(projectId, directClientId);
+	const associationChanged = projectId !== current.projectId || directClientId !== current.directClientId;
+	const defaults = associationChanged || rate?.mode === 'current'
+		? await billingDefaults(transaction, accountId, projectId, directClientId)
+		: null;
+	let assignedRateOrePerHour = current.assignedRateOrePerHour;
+	if (rate?.mode === 'current') {
+		assignedRateOrePerHour = defaults?.rateOrePerHour ?? null;
+		if ((assignedRateOrePerHour?.toString() ?? null) !== rate.expectedDefaultRateOrePerHour) {
+			throw new ApiRequestError(409, 'ENTRY_DEFAULT_RATE_CHANGED', 'The default hourly rate changed. Reload and review the entry.');
+		}
+	} else if (rate?.mode === 'override') {
+		assignedRateOrePerHour = parseHourlyRateOre(rate.rateOrePerHour, 'rate/rateOrePerHour');
+	}
+	if (!proposedTime && current.durationSeconds === 0) {
+		throw new ApiRequestError(422, 'INVALID_DURATION', 'Enter a positive duration for this time entry.', 'time');
+	}
+	const work = { description, projectId, directClientId, billable, assignedRateOrePerHour };
+	const kind = input.time?.kind ?? (current.startAt ? 'timed' : 'duration-only');
+	const timeChanged = Boolean(proposedTime && (
+		kind !== current.kind || proposedTime.localDate !== current.localDate || proposedTime.durationSeconds !== current.durationSeconds
+		|| proposedTime.startAt?.getTime() !== current.startAt?.getTime() || proposedTime.endAt?.getTime() !== current.endAt?.getTime()
+	));
+	const billingChanged = billable !== current.billable || assignedRateOrePerHour !== current.assignedRateOrePerHour;
+	const billableAmountOre = billingChanged || current.billableAmountOre === null
+		|| (proposedTime && proposedTime.durationSeconds !== current.durationSeconds)
+		? requireCompleteAmount(entryBilling(work, proposedTime?.durationSeconds ?? current.durationSeconds))
+		: current.billableAmountOre;
+	const rebuild = timeChanged || billingChanged || current.completion !== 'complete';
+	const time = rebuild ? proposedTime ?? savedTime(current) : null;
+	const overlap = timeChanged && proposedTime !== undefined && await overlappingEntry(transaction, accountId, proposedTime, current.id);
+	return { work, kind, time, billableAmountOre, overlap, changed: rebuild || associationChanged || description !== current.description };
+}
+
+async function replaceEntry(
+	transaction: Prisma.TransactionClient, current: EntryWithRelations, kind: EntryResponse['kind'], work: WorkSettings,
+	billableAmountOre: bigint, time: EntryTime | null,
+): Promise<EntryResponse> {
+	const { id, accountId, revision } = current;
+	if (time) await transaction.entryDayAllocation.deleteMany({ where: { entryId: id } });
+	const updated = await transaction.entry.update({
+		where: { id, accountId, revision, invoicedAt: null },
+		data: {
+			kind, ...work, billableAmountOre, completion: 'complete', revision: { increment: 1 },
+			...(time ? {
+				localDate: time.localDate, durationSeconds: time.durationSeconds, startAt: time.startAt, endAt: time.endAt,
+				allocations: { createMany: { data: completedAllocations(time, billableAmountOre) } },
+			} : {}),
+		},
+		include: entryRelations,
+	});
+	const response = entryResponse(updated);
+	await recordHistory(transaction, current.completion === 'incomplete' ? 'completed' : 'edited', new Date(), response, entryResponse(current));
+	return response;
 }
 
 export async function writeEntry(
@@ -163,20 +265,49 @@ export function createEntryStore(database: PrismaClient) {
 
 		createEntry(accountId: string, input: CreateEntryBody): Promise<EntryResponse> {
 			const time = entryTime(input);
-			const { startAt, endAt } = time;
 
 			return writeForAccount(database, accountId, async (transaction) => {
 				const work = await resolveWorkSettings(transaction, accountId, input);
-				if (input.kind === 'timed' && startAt && endAt && !input.confirmOverlap) {
-					const overlap = await transaction.entry.findFirst({
-						where: { accountId, kind: 'timed', durationSeconds: { gt: 0 }, startAt: { lt: endAt }, endAt: { gt: startAt } },
-						select: { id: true },
-					});
-					if (overlap) {
-						throw new ApiRequestError(409, 'ENTRY_OVERLAP', 'The time overlaps recorded work. Confirm to save this entry.');
-					}
+				if (input.kind === 'timed' && !input.confirmOverlap) {
+					requireOverlapConfirmation(await overlappingEntry(transaction, accountId, time), input.confirmOverlap);
 				}
 				return writeEntry(transaction, accountId, input.kind, time, work, new Date());
+			});
+		},
+
+		async getHistory(accountId: string, id: string): Promise<EntryHistoryResponse> {
+			return database.$transaction(async (transaction) => {
+				const owner = await transaction.entry.findUnique({ where: { id, accountId }, select: { id: true } });
+				if (!owner) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
+				const rows = await transaction.entryHistory.findMany({ where: { entryId: id }, orderBy: [{ at: 'desc' }, { id: 'desc' }] });
+				return rows.map(({ id: historyId, action, at, beforeSnapshot, afterSnapshot }) => {
+					if (action !== 'created' && action !== 'completed' && action !== 'edited') throw new Error('Invalid time entry history action');
+					return { id: historyId, action, at: at.toISOString(),
+						before: beforeSnapshot === null ? null : readHistorySnapshot(beforeSnapshot, id), after: readHistorySnapshot(afterSnapshot, id) };
+				});
+			});
+		},
+
+		previewEdit(accountId: string, id: string, input: EntryEditBody): Promise<EntryEditPreview> {
+			const proposedTime = input.time ? entryTime(input.time) : undefined;
+			return database.$transaction(async (transaction) => {
+				const current = await editableEntry(transaction, accountId, id, input.revision);
+				const { billableAmountOre, work, overlap } = await prepareEdit(transaction, accountId, current, input, proposedTime);
+				return {
+					durationSeconds: proposedTime?.durationSeconds ?? current.durationSeconds,
+					billableAmountOre: billableAmountOre.toString(), assignedRateOrePerHour: work.assignedRateOrePerHour?.toString() ?? null, overlap,
+				};
+			});
+		},
+
+		updateEntry(accountId: string, id: string, input: EntryEditBody): Promise<EntryResponse> {
+			const proposedTime = input.time ? entryTime(input.time) : undefined;
+			return writeForAccount(database, accountId, async (transaction) => {
+				const current = await editableEntry(transaction, accountId, id, input.revision);
+				const edit = await prepareEdit(transaction, accountId, current, input, proposedTime);
+				requireOverlapConfirmation(edit.overlap, input.confirmOverlap);
+				if (!edit.changed) return entryResponse(current);
+				return replaceEntry(transaction, current, edit.kind, edit.work, edit.billableAmountOre, edit.time);
 			});
 		},
 
@@ -184,9 +315,7 @@ export function createEntryStore(database: PrismaClient) {
 			const description = workDescription(input.description);
 			const rateOverride = parseHourlyRateOre(input.rateOverrideOrePerHour, 'rateOverrideOrePerHour');
 			return writeForAccount(database, accountId, async (transaction) => {
-				const current = await transaction.entry.findUnique({ where: { id, accountId }, include: entryRelations });
-				if (!current) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
-				if (current.revision !== input.revision) throw new ApiRequestError(409, 'REVISION_CONFLICT', 'Time entry changed. Reload and try again.');
+				const current = await editableEntry(transaction, accountId, id, input.revision);
 				if (current.completion !== 'incomplete' || !current.startAt || !current.endAt) {
 					throw new ApiRequestError(409, 'ENTRY_ALREADY_COMPLETE', 'This time entry is already complete.');
 				}
@@ -202,17 +331,8 @@ export function createEntryStore(database: PrismaClient) {
 					assignedRateOrePerHour: rateOverride ?? current.assignedRateOrePerHour,
 				};
 				const billableAmountOre = requireCompleteAmount(entryBilling(work, time.durationSeconds));
-				const entry = await transaction.entry.update({
-					where: { id, accountId, revision: input.revision },
-					data: {
-						...work, billableAmountOre, durationSeconds: time.durationSeconds, endAt, completion: 'complete', revision: { increment: 1 },
-						allocations: { createMany: { data: completedAllocations(time, billableAmountOre) } },
-					},
-					include: entryRelations,
-				});
-				const response = entryResponse(entry);
+				const response = await replaceEntry(transaction, current, 'timed', work, billableAmountOre, time);
 				if (response.kind !== 'timed' || response.completion !== 'complete') throw new Error('Invalid completed timer entry');
-				await recordHistory(transaction, 'completed', new Date(), response, entryResponse(current));
 				return response;
 			});
 		},

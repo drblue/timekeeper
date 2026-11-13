@@ -2,6 +2,9 @@ import {
 	ApiErrorResponse,
 	CompleteEntryBody,
 	CreateEntryBody,
+	EntryEditBody,
+	EntryEditPreview,
+	EntryHistoryResponse,
 	EntryListResponse,
 	EntryResponse,
 	entriesPath,
@@ -13,6 +16,7 @@ import type { FastifyInstance } from 'fastify';
 import type { EntryStore } from './store.ts';
 
 const readErrors = { 400: ApiErrorResponse, 401: ApiErrorResponse, 500: ApiErrorResponse };
+const editErrors = { ...readErrors, 403: ApiErrorResponse, 404: ApiErrorResponse, 409: ApiErrorResponse, 413: ApiErrorResponse, 422: ApiErrorResponse };
 
 export function registerEntries(app: FastifyInstance, store: EntryStore) {
 	app.get(entriesPath, {
@@ -32,6 +36,29 @@ export function registerEntries(app: FastifyInstance, store: EntryStore) {
 		},
 	}, (request) => store.getEntry(request.accountSession!.accountId, request.params.id));
 
+	app.get<{ Params: EntryIdParams }>(`${entriesPath}/:id/history`, {
+		schema: {
+			operationId: 'getEntryHistory', params: EntryIdParams, querystring: EntryListQuery,
+			response: { 200: EntryHistoryResponse, ...readErrors, 404: ApiErrorResponse },
+		},
+	}, (request) => store.getHistory(request.accountSession!.accountId, request.params.id));
+
+	app.post<{ Params: EntryIdParams; Body: EntryEditBody }>(`${entriesPath}/:id/edit-preview`, {
+		bodyLimit: 32_768,
+		schema: {
+			operationId: 'previewEntryEdit', params: EntryIdParams, body: EntryEditBody,
+			response: { 200: EntryEditPreview, ...editErrors },
+		},
+	}, (request) => store.previewEdit(request.accountSession!.accountId, request.params.id, request.body));
+
+	app.put<{ Params: EntryIdParams; Body: EntryEditBody }>(`${entriesPath}/:id`, {
+		bodyLimit: 32_768,
+		schema: {
+			operationId: 'updateEntry', params: EntryIdParams, body: EntryEditBody,
+			response: { 200: EntryResponse, ...editErrors },
+		},
+	}, (request) => store.updateEntry(request.accountSession!.accountId, request.params.id, request.body));
+
 	app.post<{ Body: CreateEntryBody }>(entriesPath, {
 		bodyLimit: 32_768,
 		schema: {
@@ -48,8 +75,7 @@ export function registerEntries(app: FastifyInstance, store: EntryStore) {
 		bodyLimit: 32_768,
 		schema: {
 			operationId: 'completeEntry', params: EntryIdParams, body: CompleteEntryBody,
-			response: { 200: TimedEntryResponse, ...readErrors, 403: ApiErrorResponse, 404: ApiErrorResponse,
-				409: ApiErrorResponse, 413: ApiErrorResponse, 422: ApiErrorResponse },
+			response: { 200: TimedEntryResponse, ...editErrors },
 		},
 	}, (request) => store.completeEntry(request.accountSession!.accountId, request.params.id, request.body));
 }
