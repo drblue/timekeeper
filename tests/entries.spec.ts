@@ -45,6 +45,7 @@ test('records duration-only work, snapshots defaults, and displays the exact sav
 	await page.getByRole('button', { name: 'Sign in' }).click();
 	await page.getByRole('link', { name: 'Entries', exact: true }).click();
 	await expect(page.getByRole('heading', { name: 'Time entries' })).toBeVisible();
+	await page.goto('/entries?preset=custom&from=2026-10-19&to=2026-11-11');
 
 	const session = parseAuthSessionResponse(await (await page.request.get(authSessionPath)).json());
 	const headers = { Origin: new URL(page.url()).origin, [csrfHeader]: session.csrfToken };
@@ -115,7 +116,7 @@ test('records duration-only work, snapshots defaults, and displays the exact sav
 	await page.getByRole('button', { name: 'Save changes' }).click();
 	await expect(studio).toContainText('900.00 SEK/hour');
 
-	await page.getByRole('link', { name: 'Entries', exact: true }).click();
+	await page.goto('/entries?preset=custom&from=2026-10-19&to=2026-11-11');
 	await openEditor(page, 'Refine cover concepts');
 	await association.selectOption({ label: 'Editorial (Studio)' });
 	await expect(page.getByText(/Leave blank to use 900,00/)).toBeVisible();
@@ -143,6 +144,7 @@ test('records duration-only work, snapshots defaults, and displays the exact sav
 		directClientId: clientWithoutRate.id, projectId: null, billable: true, assignedRateOrePerHour: '0', billableAmountOre: '0',
 	});
 
+	await page.goto('/entries?preset=custom&from=2026-11-11&to=2026-11-11');
 	await openEditor(page, 'Rounded one-minute entry');
 	await expect(page.getByLabel('Billability').locator('option:checked')).toHaveText('Use default (non-billable)');
 	await duration.fill('100');
@@ -278,7 +280,8 @@ test('requires a repeated-time occurrence and allows explicit overlap confirmati
 	await page.getByLabel('Email address').fill('operator@example.test');
 	await page.getByLabel('Password', { exact: true }).fill('Browser test initial password');
 	await page.getByRole('button', { name: 'Sign in' }).click();
-	await page.getByRole('link', { name: 'Entries', exact: true }).click();
+	await page.getByRole('link', { name: 'Entries', exact: true }).waitFor();
+	await page.goto('/entries?preset=custom&from=2026-10-25&to=2026-10-25');
 	async function fillTimedWork(description: string) {
 		await openEditor(page, description);
 		await page.getByRole('radio', { name: 'Timed', exact: true }).check();

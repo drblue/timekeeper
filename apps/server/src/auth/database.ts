@@ -22,7 +22,7 @@ export async function openDatabase(url: string): Promise<PrismaClient> {
 		await database.session.findFirst({ select: { tokenHash: true } });
 		await database.client.findFirst({ select: { id: true } });
 		await database.project.findFirst({ select: { id: true } });
-		await database.entry.findFirst({ select: { startAt: true, endAt: true, completion: true, invoicedAt: true } });
+		await database.entry.findFirst({ select: { startAt: true, endAt: true, completion: true, invoicedAt: true, invoiceNumber: true } });
 		await database.entryDayAllocation.findFirst({ select: { entryId: true } });
 		await database.entryHistory.findFirst({ select: { id: true } });
 		await database.runningTimer.findFirst({ select: { id: true } });

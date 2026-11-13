@@ -18,9 +18,11 @@ import {
 	parseEntryHistoryResponse,
 	parseEntryResponse,
 	parseProjectResponse,
+	parseWorkListResponse,
 	projectsPath,
+	workListPath,
 } from '@timekeeper/contracts';
-import type { CreateDurationEntryBody, CreateTimedEntryBody, EntryEditBody, EntryResponse } from '@timekeeper/contracts';
+import type { CreateDurationEntryBody, CreateTimedEntryBody, EntryEditBody, EntryResponse, WorkListQuery } from '@timekeeper/contracts';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { openDatabase } from '../src/auth/database.ts';
@@ -98,7 +100,7 @@ describe('Manual entries', () => {
 		app = await createApp({
 			auth: { config: { origin, trustedProxyAddresses: new Set() }, store: await createAuthStore(database) },
 			catalog: createCatalogStore(database),
-			entries: createEntryStore(database),
+			entries: createEntryStore(database, () => new Date('2026-11-15T23:30:00.000Z')),
 		});
 		session = await sessionFor(accountId);
 	});
@@ -111,6 +113,13 @@ describe('Manual entries', () => {
 
 	function request(method: 'GET' | 'POST' | 'PUT', url: string, payload?: object) {
 		return app.inject({ ...session, method, url, payload });
+	}
+
+	async function readWork(query: WorkListQuery = {}) {
+		const result = await request('GET', `${workListPath}?${new URLSearchParams(query)}`);
+		expect(result.statusCode, result.body).toBe(200);
+		expect(result.headers['cache-control']).toBe('no-store');
+		return parseWorkListResponse(result.json());
 	}
 
 	async function createEntry(overrides?: Partial<CreateDurationEntryBody>) {
@@ -552,5 +561,86 @@ describe('Manual entries', () => {
 		const completion = await request('POST', `${url}/complete`, { revision: source.revision, description: 'Complete', rateOverrideOrePerHour: null });
 		expect(completion.statusCode).toBe(409);
 		expect(completion.json()).toMatchObject({ code: 'ENTRY_INVOICED' });
+	});
+
+	it('defaults to the current Stockholm week and validates inclusive date shortcuts and range', async () => {
+		const sunday = await createEntry({ localDate: '2026-11-15' });
+		const monday = await createEntry({ localDate: '2026-11-16' });
+		const nextSunday = await createEntry({ localDate: '2026-11-22' });
+		await createEntry({ localDate: '2026-11-23' });
+		const week = await readWork();
+		expect(week.range).toEqual({ from: '2026-11-16', to: '2026-11-22' });
+		expect(week.groups.flatMap(({ rows }) => rows.map(({ entry }) => entry.id))).toEqual([nextSunday.id, monday.id]);
+		expect((await readWork({ preset: 'today' })).groups[0]?.rows[0]?.entry.id).toBe(monday.id);
+		expect((await readWork({ preset: 'this-month' })).range).toEqual({ from: '2026-11-01', to: '2026-11-30' });
+		expect((await readWork({ preset: 'previous-month' })).range).toEqual({ from: '2026-10-01', to: '2026-10-31' });
+		expect((await readWork({ from: sunday.localDate, to: monday.localDate, sort: 'oldest' })).groups.flatMap(({ rows }) => rows.map(({ entry }) => entry.id)))
+			.toEqual([sunday.id, monday.id]);
+		for (const query of ['preset=custom&from=2026-11-16', 'from=2026-02-29&to=2026-03-02', 'from=2026-11-16&to=2026-11-15',
+			'preset=today&from=2026-11-16&to=2026-11-16', 'from=0000-01-01&to=2026-03-02']) {
+			const rejected = await request('GET', `${workListPath}?${query}`);
+			expect(rejected.statusCode).toBe(422);
+			expect(rejected.json()).toMatchObject({ code: 'INVALID_DATE_RANGE' });
+		}
+		expect((await request('GET', `${workListPath}?page=0`)).statusCode).toBe(400);
+		expect((await request('GET', `${workListPath}?pageSize=101`)).json()).toMatchObject({ code: 'INVALID_PAGE_SIZE' });
+	});
+
+	it('combines historical associations, invoice/billability and literal Unicode text searches before pagination', async () => {
+		const client = await addClient('Main client', 80_000n);
+		const other = await addClient('Another client', 80_000n);
+		const project = await addProject(client.id);
+		const invoiced = await createEntry({ description: 'Årsrapport 100%_ok', localDate: '2026-11-16', projectId: project.id });
+		const unmarked = await createEntry({ description: 'Årsrapport 100%_ok', localDate: '2026-11-16', projectId: project.id });
+		await createEntry({ description: 'Årsrapport 100%_ok', localDate: '2026-11-16', projectId: project.id, billable: false });
+		const direct = await createEntry({ description: 'Årsrapport 100%_ok', localDate: '2026-11-16', directClientId: client.id });
+		const wildcardLookalike = await createEntry({ description: 'Årsrapport 100xyok', localDate: '2026-11-16', projectId: project.id });
+		await database.entry.updateMany({ where: { id: { in: [invoiced.id, wildcardLookalike.id] } }, data: {
+			invoicedAt: new Date('2026-11-19T12:00:00.000Z'), invoiceNumber: 'SE_000%17',
+		} });
+		await database.client.update({ where: { id: client.id }, data: { archivedAt: new Date() } });
+		await database.project.update({ where: { id: project.id }, data: { archivedAt: new Date() } });
+		const scope = { clientId: client.id, projectId: project.id, description: ' a\u030arsrapport 100%_OK ' };
+		const combined = await readWork({ ...scope, invoice: 'invoiced', billability: 'billable', invoiceNumber: '_000%1', pageSize: '1' });
+		expect(combined.totalRows).toBe(1);
+		expect(combined.groups[0]?.rows[0]?.entry).toMatchObject({ id: invoiced.id, invoiceNumber: 'SE_000%17', clientId: client.id });
+		const uninvoiced = await readWork({ ...scope, invoice: 'not-yet-invoiced' });
+		expect(uninvoiced.groups.flatMap(({ rows }) => rows.map(({ entry }) => entry.id))).toEqual([unmarked.id]);
+		const clientWork = await readWork({ clientId: client.id, invoice: 'not-yet-invoiced' });
+		expect(clientWork.groups.flatMap(({ rows }) => rows.map(({ entry }) => entry.id)).sort()).toEqual([direct.id, unmarked.id].sort());
+		const incompatible = await readWork({ ...scope, clientId: other.id });
+		expect(incompatible).toMatchObject({ incompatibleSelection: true, totalRows: 0, groups: [], incomplete: [], totals: { seconds: 0, amountOre: '0' } });
+		expect((await readWork({ ...scope, invoice: 'not-yet-invoiced', billability: 'non-billable' })).totalRows).toBe(0);
+	});
+
+	it('uses only in-range stored allocations, conserves large totals before pages and shows incomplete work separately', async () => {
+		const crossing = await createTimedEntry({ startLocal: '2026-11-15T23:30', endLocal: '2026-11-16T00:30',
+			billable: true, rateOverrideOrePerHour: '1' });
+		await createEntry({ localDate: '2026-11-16', durationSeconds: 3_600, billable: true, rateOverrideOrePerHour: maxHourlyRateOre });
+		await createEntry({ localDate: '2026-11-16', durationSeconds: 3_600, billable: true, rateOverrideOrePerHour: maxHourlyRateOre });
+		await database.entry.create({ data: {
+			id: randomUUID(), accountId, kind: 'timed', completion: 'incomplete', description: '', localDate: '2026-11-15',
+			startAt: new Date('2026-11-15T22:15:00.000Z'), endAt: new Date('2026-11-15T23:15:00.000Z'),
+			durationSeconds: 3_600, billable: false,
+		} });
+		const page1 = await readWork({ pageSize: '1' });
+		const page2 = await readWork({ pageSize: '1', page: '2' });
+		const page3 = await readWork({ pageSize: '1', page: '999' });
+		for (const [index, page] of [page1, page2, page3].entries()) {
+			expect(page).toMatchObject({ page: index + 1, totalPages: 3, totalRows: 3,
+				totals: { seconds: 9_000, amountOre: '18446744073709551614' }, incomplete: [{ completion: 'incomplete', localDate: '2026-11-15' }] });
+			expect(page.groups).toHaveLength(1);
+			expect(page.groups[0]?.localDate).toBe('2026-11-16');
+		}
+		const allPageRows = [page1, page2, page3].flatMap(({ groups }) => groups.flatMap(({ rows }) => rows));
+		expect(new Set(allPageRows.map(({ entry }) => entry.id)).size).toBe(3);
+		expect(allPageRows.find(({ entry }) => entry.id === crossing.id)).toMatchObject({ seconds: 1_800, amountOre: '0' });
+		const sunday = await readWork({ from: '2026-11-15', to: '2026-11-15' });
+		expect(sunday.totals).toEqual({ seconds: 1_800, amountOre: '1' });
+		expect(sunday.groups[0]?.rows[0]).toMatchObject({ entry: { id: crossing.id }, seconds: 1_800, amountOre: '1' });
+		const range = await readWork({ from: '2026-11-15', to: '2026-11-16', sort: 'oldest' });
+		expect(range.groups.map(({ localDate }) => localDate)).toEqual(['2026-11-15', '2026-11-16']);
+		expect(range.totalRows).toBe(4);
+		expect(range.totals).toEqual({ seconds: 10_800, amountOre: '18446744073709551615' });
 	});
 });

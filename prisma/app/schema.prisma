@@ -91,6 +91,7 @@ model Entry {
 	billableAmountOre      BigInt?
 	completion             String               @default("complete")
 	invoicedAt             DateTime?
+	invoiceNumber          String?
 	revision               Int                  @default(1)
 	createdAt              DateTime             @default(now())
 	allocations            EntryDayAllocation[]
@@ -100,6 +101,7 @@ model Entry {
 	@@index([accountId, projectId])
 	@@index([accountId, directClientId])
 	@@index([accountId, startAt, endAt])
+	@@index([accountId, invoicedAt])
 }
 
 model EntryDayAllocation {
@@ -111,6 +113,7 @@ model EntryDayAllocation {
 	calculationVersion Int
 
 	@@id([entryId, localDate])
+	@@index([localDate, entryId])
 }
 
 model RunningTimer {

@@ -8,7 +8,7 @@ export const entriesPath = '/api/v1/entries';
 export const maxEntryDescriptionLength = 4_000;
 export const maxEntryDurationSeconds = maxStoredInt;
 
-const LocalDate = Type.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$', description: 'A local calendar date in YYYY-MM-DD form.' });
+export const EntryLocalDate = Type.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$', description: 'A local calendar date in YYYY-MM-DD form.' });
 const LocalDateTime = Type.String({ pattern: entryLocalDateTimePattern, description: 'Local date and time in Europe/Stockholm.' });
 export const EntryInstant = Type.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.000Z$' });
 const Occurrence = Type.Optional(Type.Union([Type.Literal('earlier'), Type.Literal('later')]));
@@ -28,7 +28,7 @@ const entryInput = {
 
 const durationTime = {
 	kind: Type.Literal('duration-only'),
-	localDate: LocalDate,
+	localDate: EntryLocalDate,
 	durationSeconds: DurationSeconds,
 };
 const timedTime = {
@@ -50,7 +50,7 @@ const entryOutput = {
 	id: Uuid,
 	// JSON Schema input checks count Unicode code points, while TypeBox response checks count code units.
 	description: Type.String({ minLength: 1 }),
-	localDate: LocalDate,
+	localDate: EntryLocalDate,
 	durationSeconds: DurationSeconds,
 	projectId: NullableUuid,
 	directClientId: NullableUuid,
@@ -62,6 +62,7 @@ const entryOutput = {
 	billableAmountOre: Ore,
 	revision: Revision,
 	invoicedAt: Type.Optional(Timestamp),
+	invoiceNumber: Type.Optional(Type.String()),
 };
 
 export const DurationEntryResponse = Type.Object({
@@ -75,7 +76,7 @@ export const TimedEntryResponse = Type.Object({
 	...entryOutput,
 	startAt: EntryInstant,
 	endAt: EntryInstant,
-	allocations: Type.Array(Type.Object({ localDate: LocalDate, seconds: DurationSeconds, amountOre: Ore }, strict), { minItems: 1 }),
+	allocations: Type.Array(Type.Object({ localDate: EntryLocalDate, seconds: DurationSeconds, amountOre: Ore }, strict), { minItems: 1 }),
 }, strict);
 export const IncompleteEntryResponse = Type.Object({
 	kind: Type.Literal('timed'),

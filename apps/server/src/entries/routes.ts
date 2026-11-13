@@ -11,6 +11,9 @@ import {
 	EntryIdParams,
 	EntryListQuery,
 	TimedEntryResponse,
+	WorkListQuery,
+	WorkListResponse,
+	workListPath,
 } from '@timekeeper/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { EntryStore } from './store.ts';
@@ -19,6 +22,12 @@ const readErrors = { 400: ApiErrorResponse, 401: ApiErrorResponse, 500: ApiError
 const editErrors = { ...readErrors, 403: ApiErrorResponse, 404: ApiErrorResponse, 409: ApiErrorResponse, 413: ApiErrorResponse, 422: ApiErrorResponse };
 
 export function registerEntries(app: FastifyInstance, store: EntryStore) {
+	app.get<{ Querystring: WorkListQuery }>(workListPath, {
+		schema: {
+			operationId: 'listWork', querystring: WorkListQuery,
+			response: { 200: WorkListResponse, ...readErrors, 422: ApiErrorResponse },
+		},
+	}, (request) => store.getWorkList(request.accountSession!.accountId, request.query));
 	app.get(entriesPath, {
 		schema: {
 			operationId: 'listEntries',

@@ -6,6 +6,7 @@ export * from './catalog.js';
 export * from './entries.js';
 export * from './stockholm-time.js';
 export * from './timer.js';
+export * from './work-list.js';
 
 export const healthPath = '/api/v1/health';
 export const authSessionPath = '/api/v1/auth/session';

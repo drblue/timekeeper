@@ -1,58 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { parseEntryResponse } from '@timekeeper/contracts';
-import type { CompleteEntryBody, CreateEntryBody, EntryEditBody, EntryEditPreview, EntryEditTime, EntryHistoryResponse, EntryResponse, IncompleteEntryResponse, TimedEntryResponse } from '@timekeeper/contracts';
+import type { CompleteEntryBody, CreateEntryBody, EntryEditBody, EntryEditPreview, EntryEditTime, EntryHistoryResponse, EntryResponse, TimedEntryResponse } from '@timekeeper/contracts';
 import { writeForAccount } from '../account-write.ts';
 import { ApiRequestError } from '../api-error.ts';
-import { calculateBillableAmountOre, maxStoredOre, parseHourlyRateOre } from '../billing.ts';
+import { parseHourlyRateOre } from '../billing.ts';
 import type { Prisma, PrismaClient } from '../generated/prisma/client.ts';
 import { allocateEntryAmount, manualTimedInterval, timedInterval } from './timed-entry.ts';
 import type { EntryDaySegment } from './timed-entry.ts';
-import { billingDefaults, resolveWorkSettings, validateWorkAssociation, workAssociation, workDescription, workRelations } from './work-settings.ts';
+import { billingDefaults, resolveWorkSettings, validateWorkAssociation, workDescription } from './work-settings.ts';
 import type { WorkSettings } from './work-settings.ts';
+import { createWorkList } from './work-list.ts';
+import { entryBilling, entryRelations, entryResponse, requireCompleteAmount } from './entry-record.ts';
+import type { EntryWithRelations } from './entry-record.ts';
 
 const allocationCalculationVersion = 1;
-const entryRelations = {
-	...workRelations,
-	allocations: { orderBy: { localDate: 'asc' }, select: { localDate: true, seconds: true, amountOre: true } },
-} as const;
-
-type EntryWithRelations = Prisma.EntryGetPayload<{ include: typeof entryRelations }>;
-
-function entryResponse(entry: EntryWithRelations): EntryResponse {
-	const fields = {
-		id: entry.id,
-		description: entry.description,
-		localDate: entry.localDate,
-		durationSeconds: entry.durationSeconds,
-		...workAssociation(entry),
-		billable: entry.billable,
-		assignedRateOrePerHour: entry.assignedRateOrePerHour?.toString() ?? null,
-		revision: entry.revision,
-		...(entry.invoicedAt ? { invoicedAt: entry.invoicedAt.toISOString() } : {}),
-	};
-	if (entry.kind === 'duration-only' && entry.completion === 'complete' && entry.billableAmountOre !== null) {
-		return { kind: entry.kind, completion: 'complete', ...fields, billableAmountOre: entry.billableAmountOre.toString() };
-	}
-	if (entry.kind !== 'timed' || !entry.startAt || !entry.endAt) {
-		throw new Error('Invalid timed entry');
-	}
-	const timed = {
-		kind: 'timed' as const,
-		...fields,
-		startAt: entry.startAt.toISOString(),
-		endAt: entry.endAt.toISOString(),
-	};
-	if (entry.completion === 'incomplete') {
-		const { missingFields } = entryBilling(entry, entry.durationSeconds);
-		return { ...timed, completion: 'incomplete', billableAmountOre: null, allocations: [], missingFields };
-	}
-	if (entry.billableAmountOre === null || entry.completion !== 'complete') throw new Error('Invalid entry completion');
-	return {
-		...timed, completion: 'complete', billableAmountOre: entry.billableAmountOre.toString(),
-		allocations: entry.allocations.map(({ localDate, seconds, amountOre }) => ({ localDate, seconds, amountOre: amountOre.toString() })),
-	};
-}
-
 function checkLocalDate(localDate: string) {
 	const year = Number(localDate.slice(0, 4));
 	const month = Number(localDate.slice(5, 7));
@@ -69,33 +30,6 @@ function entryTime(input: EntryEditTime): EntryTime {
 	const { localDate, durationSeconds } = input;
 	checkLocalDate(localDate);
 	return { localDate, durationSeconds, startAt: null, endAt: null, segments: [{ localDate, seconds: durationSeconds }] };
-}
-
-function entryBilling(work: WorkSettings, durationSeconds: number) {
-	const missingFields: IncompleteEntryResponse['missingFields'] = [];
-	if (!work.description) missingFields.push('description');
-	if (durationSeconds === 0) missingFields.push('duration');
-	let amount = 0n;
-	if (work.billable) {
-		if (work.assignedRateOrePerHour === null) {
-			missingFields.push('rate');
-		} else if (durationSeconds > 0) {
-			amount = calculateBillableAmountOre(durationSeconds, work.assignedRateOrePerHour);
-			if (amount > maxStoredOre) missingFields.push('amount');
-		}
-	}
-	return { missingFields, billableAmountOre: missingFields.length ? null : amount };
-}
-
-function requireCompleteAmount(billing: ReturnType<typeof entryBilling>): bigint {
-	if (billing.missingFields.includes('rate')) {
-		throw new ApiRequestError(422, 'MISSING_HOURLY_RATE', 'Enter an hourly rate for billable work.', 'rateOverrideOrePerHour');
-	}
-	if (billing.missingFields.includes('amount')) {
-		throw new ApiRequestError(422, 'AMOUNT_OUT_OF_RANGE', 'The duration and rate produce an amount above the supported maximum.');
-	}
-	if (billing.billableAmountOre === null) throw new Error('Invalid completed entry');
-	return billing.billableAmountOre;
 }
 
 function completedAllocations(time: EntryTime, billableAmountOre: bigint) {
@@ -242,8 +176,9 @@ export async function writeEntry(
 	return response;
 }
 
-export function createEntryStore(database: PrismaClient) {
+export function createEntryStore(database: PrismaClient, now?: () => Date) {
 	return {
+		getWorkList: createWorkList(database, now),
 		async listEntries(accountId: string): Promise<EntryResponse[]> {
 			const entries = await database.$transaction((transaction) => transaction.entry.findMany({
 				where: { accountId },

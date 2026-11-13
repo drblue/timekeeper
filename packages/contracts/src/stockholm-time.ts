@@ -1,4 +1,5 @@
 import { Temporal } from 'temporal-polyfill';
+import type { WorkListPreset, WorkListRange } from './work-list.js';
 
 export const entryTimeZone = 'Europe/Stockholm';
 export type LocalTimeOccurrence = 'earlier' | 'later';
@@ -53,4 +54,22 @@ export function elapsedSeconds(startAt: string, endAt: string): number {
 export function nextStockholmDayStart(localDate: string): { localDate: string; epochMilliseconds: number } {
 	const next = Temporal.PlainDate.from(localDate).add({ days: 1 }).toZonedDateTime(entryTimeZone);
 	return { localDate: next.toPlainDate().toString(), epochMilliseconds: next.epochMilliseconds };
+}
+
+export function stockholmDayStart(localDate: string): number {
+	return Temporal.PlainDate.from(localDate).toZonedDateTime(entryTimeZone).epochMilliseconds;
+}
+
+export function stockholmDateRange(preset: Exclude<WorkListPreset, 'custom'>, instant: string): WorkListRange {
+	const today = Temporal.Instant.from(instant).toZonedDateTimeISO(entryTimeZone).toPlainDate();
+	const firstOfMonth = today.with({ day: 1 });
+	switch (preset) {
+		case 'today': return { from: today.toString(), to: today.toString() };
+		case 'this-week': {
+			const monday = today.subtract({ days: today.dayOfWeek - 1 });
+			return { from: monday.toString(), to: monday.add({ days: 6 }).toString() };
+		}
+		case 'this-month': return { from: firstOfMonth.toString(), to: firstOfMonth.add({ months: 1 }).subtract({ days: 1 }).toString() };
+		case 'previous-month': return { from: firstOfMonth.subtract({ months: 1 }).toString(), to: firstOfMonth.subtract({ days: 1 }).toString() };
+	}
 }

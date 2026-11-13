@@ -1,0 +1,93 @@
+import { nextStockholmDayStart, stockholmDateRange, stockholmDayStart } from '@timekeeper/contracts';
+import type { WorkListQuery, WorkListRange } from '@timekeeper/contracts';
+import { ApiRequestError } from '../api-error.ts';
+import type { Prisma } from '../generated/prisma/client.ts';
+
+type WorkFilters = Pick<WorkListQuery, 'clientId' | 'projectId' | 'invoice' | 'billability' | 'description' | 'invoiceNumber'>;
+
+export interface WorkScope {
+	range: WorkListRange;
+	startAt: Date;
+	endBefore: Date;
+	entryWhere: Prisma.EntryWhereInput;
+	matchesSearch: (entry: { description: string; invoiceNumber: string | null }) => boolean;
+	incompatibleSelection: boolean;
+}
+
+export function workDateRange(query: Pick<WorkListQuery, 'preset' | 'from' | 'to'>, now: string): WorkListRange {
+	const { from, to } = query;
+	const preset = query.preset ?? (from !== undefined || to !== undefined ? 'custom' : 'this-week');
+	if (preset === 'custom') {
+		if (!from || !to || from > to || from.startsWith('0000-') || to.startsWith('0000-')) {
+			throw new ApiRequestError(422, 'INVALID_DATE_RANGE', 'Enter a valid start and end date in order.');
+		}
+		return { from, to };
+	}
+	if (from !== undefined || to !== undefined) {
+		throw new ApiRequestError(422, 'INVALID_DATE_RANGE', 'Select Custom range to enter dates.');
+	}
+	return stockholmDateRange(preset, now);
+}
+
+function searchText(value: string) {
+	return value.toLowerCase().normalize('NFC');
+}
+
+export async function resolveWorkScope(
+	transaction: Prisma.TransactionClient, accountId: string, range: WorkListRange, filters: WorkFilters,
+): Promise<WorkScope> {
+	const { clientId, projectId, invoice, billability } = filters;
+	let startAt: Date;
+	let endBefore: Date;
+	try {
+		startAt = new Date(stockholmDayStart(range.from));
+		endBefore = new Date(nextStockholmDayStart(range.to).epochMilliseconds);
+	} catch (error) {
+		if (error instanceof RangeError) throw new ApiRequestError(422, 'INVALID_DATE_RANGE', 'Enter valid Stockholm calendar dates.');
+		throw error;
+	}
+	if (clientId && !await transaction.client.findUnique({ where: { id: clientId, accountId }, select: { id: true } })) {
+		throw new ApiRequestError(422, 'INVALID_CLIENT', 'Choose a client from your work history.');
+	}
+	const project = projectId && await transaction.project.findUnique({ where: { id: projectId, accountId }, select: { clientId: true } });
+	if (projectId && !project) throw new ApiRequestError(422, 'INVALID_PROJECT', 'Choose a project from your work history.');
+	const incompatibleSelection = Boolean(clientId && project && project.clientId !== clientId);
+	const conditions: Prisma.EntryWhereInput[] = [];
+	if (clientId) conditions.push({ OR: [{ directClientId: clientId }, { project: { is: { accountId, clientId } } }] });
+	if (invoice === 'invoiced') conditions.push({ invoicedAt: { not: null } });
+	if (invoice === 'not-yet-invoiced') conditions.push({ invoicedAt: null, billable: true });
+	if (billability === 'billable') conditions.push({ billable: true });
+	if (billability === 'non-billable') conditions.push({ billable: false });
+	const description = searchText(filters.description?.trim() ?? '');
+	const invoiceNumber = searchText(filters.invoiceNumber?.trim() ?? '');
+	return {
+		range, startAt, endBefore, entryWhere: { accountId, projectId, AND: conditions }, incompatibleSelection,
+		matchesSearch(entry) {
+			return (!description || searchText(entry.description).includes(description))
+				&& (!invoiceNumber || (entry.invoiceNumber !== null && searchText(entry.invoiceNumber).includes(invoiceNumber)));
+		},
+	};
+}
+
+export async function readCompletedWork(transaction: Prisma.TransactionClient, scope: WorkScope) {
+	if (scope.incompatibleSelection) return [];
+	const rows = await transaction.entryDayAllocation.findMany({
+		where: { localDate: { gte: scope.range.from, lte: scope.range.to }, entry: { ...scope.entryWhere, completion: 'complete' } },
+		select: {
+			entryId: true, localDate: true, seconds: true, amountOre: true,
+			entry: { select: { description: true, invoiceNumber: true, startAt: true, createdAt: true } },
+		},
+	});
+	return rows.filter(({ entry }) => scope.matchesSearch(entry));
+}
+
+export function totalCompletedWork(rows: readonly { seconds: number; amountOre: bigint }[]) {
+	let seconds = 0;
+	let amountOre = 0n;
+	for (const row of rows) {
+		seconds += row.seconds;
+		amountOre += row.amountOre;
+	}
+	if (!Number.isSafeInteger(seconds)) throw new Error('Completed work duration exceeded the supported total.');
+	return { seconds, amountOre };
+}

@@ -692,3 +692,135 @@ button:disabled {
 .entry-history-values dd span {
 	display: block;
 }
+
+.work-list-controls,
+.work-list-results,
+.work-list-filter-form {
+	display: grid;
+	gap: 0.85rem;
+}
+
+.work-list-control-heading,
+.work-list-pagination,
+.work-list-presets,
+.work-list-totals {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.5rem 0.75rem;
+}
+
+.work-list-control-heading,
+.work-list-totals {
+	justify-content: space-between;
+}
+
+.work-list-control-heading h2,
+.work-list-totals h2,
+.work-list-day h3 {
+	margin: 0;
+	font-size: 1.125rem;
+}
+
+.work-list-presets button {
+	padding-inline: 0.7rem;
+}
+
+.work-list-presets button[aria-pressed='true'] {
+	background: #e9f3ed;
+	border-color: var(--accent);
+}
+
+.work-list-active,
+.work-list-row,
+.work-list-filter-grid .field {
+	min-inline-size: 0;
+	overflow-wrap: anywhere;
+}
+
+.work-list-filter-form {
+	border-block-start: 1px solid var(--border);
+	padding-block-start: 0.85rem;
+}
+
+.work-list-filter-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.75rem 1rem;
+}
+
+.work-list-span {
+	grid-column: 1 / -1;
+}
+
+.work-list-totals {
+	align-items: start;
+	gap: 0.7rem 1rem;
+	padding-block: 0.25rem;
+}
+
+.work-list-totals dl {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.55rem 1.5rem;
+	margin: 0;
+	font-variant-numeric: tabular-nums;
+}
+
+.work-list-totals dt {
+	color: var(--muted);
+	font-size: 0.875rem;
+}
+
+.work-list-totals dd {
+	margin: 0.15rem 0 0;
+	font-weight: 650;
+}
+
+.work-list-day {
+	padding-block: 0.85rem;
+}
+
+.work-list-day .entry-list {
+	gap: 0;
+	margin-block-start: 0.65rem;
+}
+
+.work-list-day .entry-list li {
+	border-block-start: 1px solid var(--border);
+}
+
+.work-list-row {
+	display: flex;
+	align-items: start;
+	justify-content: space-between;
+	gap: 0.4rem 1rem;
+	padding-block: 0.65rem;
+}
+
+.work-list-row h3 {
+	font-size: 1rem;
+}
+
+.work-list-row-values {
+	justify-content: end;
+	flex: 0 0 auto;
+}
+
+.work-list-pagination {
+	justify-content: center;
+}
+
+@media (max-width: 36rem) {
+	.work-list-filter-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.work-list-row {
+		flex-direction: column;
+	}
+
+	.work-list-row-values {
+		justify-content: start;
+	}
+}

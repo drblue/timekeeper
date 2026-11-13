@@ -7,6 +7,7 @@ import { Home } from './home';
 import { Login } from './login';
 import { Password } from './password';
 import { writeTimerOperation } from './timer-operation';
+import { validateWorkListLocation } from './work-list-search';
 import { WorkspaceTimer } from './workspace-timer';
 
 function SignOut() {
@@ -128,15 +129,26 @@ const projectsRoute = createRoute({
 const entriesRoute = createRoute({
 	getParentRoute: () => protectedRoute,
 	path: '/entries',
+	validateSearch: validateWorkListLocation,
 	component: lazyRouteComponent(() => import('./entries'), 'Entries'),
 });
 const entryDetailRoute = createRoute({
 	getParentRoute: () => protectedRoute,
 	path: '/entries/$entryId',
+	validateSearch: validateWorkListLocation,
 	component: lazyRouteComponent(() => import('./entries'), 'EntryDetail'),
 });
 
 export const router = createRouter({
+	parseSearch: (search) => Object.fromEntries(new URLSearchParams(search)),
+	stringifySearch: (search) => {
+		const params = new URLSearchParams();
+		for (const [name, value] of Object.entries(search)) {
+			if (value !== undefined) params.set(name, String(value));
+		}
+		const query = params.toString();
+		return query ? '?' + query : '';
+	},
 	routeTree: rootRoute.addChildren([
 		loginRoute,
 		protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute, entriesRoute, entryDetailRoute]),
