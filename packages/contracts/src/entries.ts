@@ -63,6 +63,7 @@ const entryOutput = {
 	revision: Revision,
 	invoicedAt: Type.Optional(Timestamp),
 	invoiceNumber: Type.Optional(Type.String()),
+	deletedAt: Type.Optional(Timestamp),
 };
 
 export const DurationEntryResponse = Type.Object({
@@ -124,11 +125,16 @@ export const EntryEditPreview = Type.Object({
 }, strict);
 export const EntryHistoryResponse = Type.Array(Type.Object({
 	id: Uuid,
-	action: Type.Union([Type.Literal('created'), Type.Literal('completed'), Type.Literal('edited')]),
+	action: Type.Union([Type.Literal('created'), Type.Literal('completed'), Type.Literal('edited'), Type.Literal('deleted'), Type.Literal('restored')]),
 	at: Timestamp,
 	before: Type.Union([EntryResponse, Type.Null()]),
 	after: EntryResponse,
 }, strict));
+
+export const entryTrashPath = `${entriesPath}/trash`;
+export const EntryLifecycleBody = Type.Object({ revision: Revision }, strict);
+export const TrashedEntryResponse = Type.Object({ entry: EntryResponse, deletedAt: Timestamp, restoreUntil: Timestamp }, strict);
+export const EntryTrashResponse = Type.Array(TrashedEntryResponse);
 
 export type EntryIdParams = Static<typeof EntryIdParams>;
 export type CreateDurationEntryBody = Static<typeof CreateDurationEntryBody>;
@@ -143,6 +149,9 @@ export type EntryEditTime = Static<typeof EntryEditTime>;
 export type EntryEditBody = Static<typeof EntryEditBody>;
 export type EntryEditPreview = Static<typeof EntryEditPreview>;
 export type EntryHistoryResponse = Static<typeof EntryHistoryResponse>;
+export type EntryLifecycleBody = Static<typeof EntryLifecycleBody>;
+export type TrashedEntryResponse = Static<typeof TrashedEntryResponse>;
+export type EntryTrashResponse = Static<typeof EntryTrashResponse>;
 
 export function parseEntryResponse(value: unknown): EntryResponse {
 	if (!Value.Check(EntryResponse, value)) {
@@ -165,5 +174,15 @@ export function parseEntryEditPreview(value: unknown): EntryEditPreview {
 
 export function parseEntryHistoryResponse(value: unknown): EntryHistoryResponse {
 	if (!Value.Check(EntryHistoryResponse, value)) throw new Error('Invalid entry history response');
+	return value;
+}
+
+export function parseTrashedEntryResponse(value: unknown): TrashedEntryResponse {
+	if (!Value.Check(TrashedEntryResponse, value)) throw new Error('Invalid trashed entry response');
+	return value;
+}
+
+export function parseEntryTrashResponse(value: unknown): EntryTrashResponse {
+	if (!Value.Check(EntryTrashResponse, value)) throw new Error('Invalid entry trash response');
 	return value;
 }

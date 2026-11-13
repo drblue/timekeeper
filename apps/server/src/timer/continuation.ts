@@ -1,5 +1,6 @@
 import type { ContinueEntryPreview, ContinueTimerBody } from '@timekeeper/contracts';
 import { ApiRequestError } from '../api-error.ts';
+import { activeEntryWhere } from '../entries/entry-record.ts';
 import { billingDefaults, workAssociation, workRelations } from '../entries/work-settings.ts';
 import type { WorkSettings } from '../entries/work-settings.ts';
 import type { Prisma } from '../generated/prisma/client.ts';
@@ -7,7 +8,7 @@ import type { Prisma } from '../generated/prisma/client.ts';
 export async function continueEntryPreview(
 	transaction: Prisma.TransactionClient, accountId: string, entryId: string,
 ): Promise<ContinueEntryPreview> {
-	const source = await transaction.entry.findUnique({ where: { id: entryId, accountId }, include: workRelations });
+	const source = await transaction.entry.findUnique({ where: { id: entryId, ...activeEntryWhere(accountId) }, include: workRelations });
 	if (!source) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
 	const { rateOrePerHour } = await billingDefaults(transaction, accountId, source.projectId, source.directClientId);
 	return {

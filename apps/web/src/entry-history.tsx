@@ -1,17 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
-import { entriesPath, formatStockholmLocalTime, parseEntryHistoryResponse } from '@timekeeper/contracts';
+import { entriesPath, parseEntryHistoryResponse } from '@timekeeper/contracts';
 import type { EntryResponse } from '@timekeeper/contracts';
 import { useId, useState } from 'react';
 import { readApi } from './api';
 import { useSession } from './auth';
 import { entriesKey } from './entry-query';
-import { displayClock, formatDurationInput } from './entry-time';
+import { stockholmTimeLabel, StockholmTime } from './entry-display';
+import { formatDurationInput } from './entry-time';
 import { formatSek } from './money';
 
-function localTime(instant: string) {
-	const { local, offset } = formatStockholmLocalTime(instant);
-	return local.slice(0, 10) + ' ' + displayClock(local.slice(11)) + ' (UTC' + offset + ')';
-}
+const historyActionLabels = {
+	created: 'Created',
+	completed: 'Completed',
+	edited: 'Edited',
+	deleted: 'Moved to Trash',
+	restored: 'Restored',
+} as const;
 
 interface HistoryValue {
 	label: string;
@@ -24,8 +28,8 @@ function values(entry: EntryResponse): HistoryValue[] {
 		{ label: 'Description', value: entry.description || 'Untitled time entry' },
 		{ label: 'Entry type', value: entry.kind === 'timed' ? 'Timed' : 'Duration only' },
 		{ label: 'Work date', value: entry.localDate },
-		{ label: 'Start', value: entry.kind === 'timed' ? localTime(entry.startAt) : '—' },
-		{ label: 'End', value: entry.kind === 'timed' ? localTime(entry.endAt) : '—' },
+		{ label: 'Start', value: entry.kind === 'timed' ? stockholmTimeLabel(entry.startAt) : '—' },
+		{ label: 'End', value: entry.kind === 'timed' ? stockholmTimeLabel(entry.endAt) : '—' },
 		{ label: 'Duration', value: formatDurationInput(entry.durationSeconds) },
 		{ label: 'Project', value: entry.projectName ?? 'None', recordId: entry.projectId },
 		{ label: 'Client', value: entry.clientName ?? 'None', recordId: entry.clientId },
@@ -33,6 +37,7 @@ function values(entry: EntryResponse): HistoryValue[] {
 		{ label: 'Hourly rate', value: entry.assignedRateOrePerHour === null ? 'No rate' : `${formatSek(entry.assignedRateOrePerHour)}/hour` },
 		{ label: 'Billable amount', value: entry.billableAmountOre === null ? 'Incomplete' : formatSek(entry.billableAmountOre) },
 		{ label: 'Status', value: entry.completion === 'complete' ? 'Complete' : 'Incomplete' },
+		{ label: 'Location', value: entry.deletedAt ? 'Trash' : 'Time entries' },
 	];
 }
 
@@ -79,8 +84,8 @@ export function EntryHistory({ entryId }: { entryId: string }) {
 							});
 							return (
 								<li key={change.id}>
-									<h3>{change.action === 'created' ? 'Created' : change.action === 'completed' ? 'Completed' : 'Edited'}</h3>
-									<p className="field-hint"><time dateTime={change.at}>{localTime(change.at)}</time></p>
+									<h3>{historyActionLabels[change.action]}</h3>
+									<p className="field-hint"><StockholmTime instant={change.at} /></p>
 									<dl className="entry-history-values">
 										{fields.map(({ label, value, previous }) => (
 											<div key={label}>

@@ -10,7 +10,11 @@ import {
 	entriesPath,
 	EntryIdParams,
 	EntryListQuery,
+	EntryLifecycleBody,
+	EntryTrashResponse,
+	entryTrashPath,
 	TimedEntryResponse,
+	TrashedEntryResponse,
 	WorkListQuery,
 	WorkListResponse,
 	workListPath,
@@ -22,6 +26,26 @@ const readErrors = { 400: ApiErrorResponse, 401: ApiErrorResponse, 500: ApiError
 const editErrors = { ...readErrors, 403: ApiErrorResponse, 404: ApiErrorResponse, 409: ApiErrorResponse, 413: ApiErrorResponse, 422: ApiErrorResponse };
 
 export function registerEntries(app: FastifyInstance, store: EntryStore) {
+	app.get(entryTrashPath, {
+		schema: { operationId: 'listEntryTrash', querystring: EntryListQuery, response: { 200: EntryTrashResponse, ...readErrors } },
+	}, (request) => store.listTrash(request.accountSession!.accountId));
+
+	app.post<{ Params: EntryIdParams; Body: EntryLifecycleBody }>(`${entriesPath}/:id/delete`, {
+		bodyLimit: 1_024,
+		schema: {
+			operationId: 'deleteEntry', params: EntryIdParams, body: EntryLifecycleBody,
+			response: { 200: TrashedEntryResponse, ...editErrors },
+		},
+	}, (request) => store.deleteEntry(request.accountSession!.accountId, request.params.id, request.body.revision));
+
+	app.post<{ Params: EntryIdParams; Body: EntryLifecycleBody }>(`${entriesPath}/:id/restore`, {
+		bodyLimit: 1_024,
+		schema: {
+			operationId: 'restoreEntry', params: EntryIdParams, body: EntryLifecycleBody,
+			response: { 200: EntryResponse, ...editErrors },
+		},
+	}, (request) => store.restoreEntry(request.accountSession!.accountId, request.params.id, request.body.revision));
+
 	app.get<{ Querystring: WorkListQuery }>(workListPath, {
 		schema: {
 			operationId: 'listWork', querystring: WorkListQuery,

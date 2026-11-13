@@ -166,8 +166,9 @@ test('displays the invoice lock while leaving prior work available to continue',
 		json: { ...original, invoicedAt: '2026-10-20T09:00:00.000Z' },
 	}));
 	await page.goto('/entries/' + original.id);
-	await expect(page.getByText('This entry is invoiced. Unmark it before editing.')).toBeVisible();
+	await expect(page.getByText('This entry is invoiced. Unmark it before editing or moving it to Trash.')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Edit entry' })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Move to Trash' })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Continue work' })).toBeEnabled();
 	await expect(page.getByRole('button', { name: 'Show history' })).toBeEnabled();
 });

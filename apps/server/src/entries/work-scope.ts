@@ -2,6 +2,7 @@ import { nextStockholmDayStart, stockholmDateRange, stockholmDayStart } from '@t
 import type { WorkListQuery, WorkListRange } from '@timekeeper/contracts';
 import { ApiRequestError } from '../api-error.ts';
 import type { Prisma } from '../generated/prisma/client.ts';
+import { activeEntryWhere } from './entry-record.ts';
 
 type WorkFilters = Pick<WorkListQuery, 'clientId' | 'projectId' | 'invoice' | 'billability' | 'description' | 'invoiceNumber'>;
 
@@ -61,7 +62,7 @@ export async function resolveWorkScope(
 	const description = searchText(filters.description?.trim() ?? '');
 	const invoiceNumber = searchText(filters.invoiceNumber?.trim() ?? '');
 	return {
-		range, startAt, endBefore, entryWhere: { accountId, projectId, AND: conditions }, incompatibleSelection,
+		range, startAt, endBefore, entryWhere: { ...activeEntryWhere(accountId), projectId, AND: conditions }, incompatibleSelection,
 		matchesSearch(entry) {
 			return (!description || searchText(entry.description).includes(description))
 				&& (!invoiceNumber || (entry.invoiceNumber !== null && searchText(entry.invoiceNumber).includes(invoiceNumber)));

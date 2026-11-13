@@ -824,3 +824,49 @@ button:disabled {
 		justify-content: start;
 	}
 }
+
+.action-link {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-block-size: 2.75rem;
+	padding-inline: 1rem;
+	border: 1px solid var(--accent);
+	border-radius: 0.5rem;
+	background: #fff;
+	text-decoration: none;
+}
+
+.action-link:hover {
+	background: #e9f3ed;
+}
+
+.danger {
+	color: #88272b;
+	border-color: #88272b;
+}
+
+.danger:hover:not(:disabled) {
+	background: #fff3f2;
+}
+
+.entry-delete-confirmation {
+	display: grid;
+	gap: 0.75rem;
+}
+
+.entry-delete-confirmation h2 {
+	margin: 0;
+}
+
+.feedback.warning .form-actions button {
+	margin-block-start: 0;
+}
+
+.trash-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: start;
+	flex-wrap: wrap;
+	gap: 0.75rem 1rem;
+}

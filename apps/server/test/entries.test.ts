@@ -9,6 +9,7 @@ import {
 	clientsPath,
 	csrfHeader,
 	entriesPath,
+	entryTrashPath,
 	maxEntryDescriptionLength,
 	maxEntryDurationSeconds,
 	maxHourlyRateOre,
@@ -16,8 +17,10 @@ import {
 	parseEntryListResponse,
 	parseEntryEditPreview,
 	parseEntryHistoryResponse,
+	parseEntryTrashResponse,
 	parseEntryResponse,
 	parseProjectResponse,
+	parseTrashedEntryResponse,
 	parseWorkListResponse,
 	projectsPath,
 	workListPath,
@@ -60,6 +63,7 @@ describe('Manual entries', () => {
 	let app: Awaited<ReturnType<typeof createApp>>;
 	let accountId: string;
 	let session: Awaited<ReturnType<typeof sessionFor>>;
+	let now: string;
 
 	beforeAll(async () => {
 		fixtureDirectory = await mkdtemp(join(tmpdir(), 'timekeeper-entries-migration-'));
@@ -91,6 +95,7 @@ describe('Manual entries', () => {
 	}
 
 	beforeEach(async () => {
+		now = '2026-11-15T23:30:00.000Z';
 		directory = await mkdtemp(join(tmpdir(), 'timekeeper-entries-test-'));
 		const filename = join(directory, 'test.sqlite');
 		await copyFile(fixtureFile, filename);
@@ -100,7 +105,7 @@ describe('Manual entries', () => {
 		app = await createApp({
 			auth: { config: { origin, trustedProxyAddresses: new Set() }, store: await createAuthStore(database) },
 			catalog: createCatalogStore(database),
-			entries: createEntryStore(database, () => new Date('2026-11-15T23:30:00.000Z')),
+			entries: createEntryStore(database, () => new Date(now)),
 		});
 		session = await sessionFor(accountId);
 	});
@@ -347,6 +352,8 @@ describe('Manual entries', () => {
 			request('GET', `${entriesPath}/${ownedEntry.id}/history`),
 			request('POST', `${entriesPath}/${ownedEntry.id}/edit-preview`, change(ownedEntry)),
 			request('PUT', `${entriesPath}/${ownedEntry.id}`, change(ownedEntry)),
+			request('POST', `${entriesPath}/${ownedEntry.id}/delete`, { revision: ownedEntry.revision }),
+			request('POST', `${entriesPath}/${ownedEntry.id}/restore`, { revision: ownedEntry.revision }),
 		]) expect((await attempted).statusCode).toBe(404);
 		expect((await request('POST', entriesPath, work({ projectId: ownedProject.id }))).json()).toMatchObject({ code: 'INVALID_PROJECT' });
 		expect((await request('POST', entriesPath, work({ directClientId: ownedClient.id }))).json()).toMatchObject({ code: 'INVALID_CLIENT' });
@@ -642,5 +649,86 @@ describe('Manual entries', () => {
 		expect(range.groups.map(({ localDate }) => localDate)).toEqual(['2026-11-15', '2026-11-16']);
 		expect(range.totalRows).toBe(4);
 		expect(range.totals).toEqual({ seconds: 10_800, amountOre: '18446744073709551615' });
+	});
+
+	it('moves work to trash and restores the same allocations, identity, historical association and history', async () => {
+		const client = await addClient('Historical client', 80_000n);
+		const project = await addProject(client.id);
+		const entry = await createTimedEntry({ projectId: project.id, rateOverrideOrePerHour: '1' });
+		const url = `${entriesPath}/${entry.id}`;
+		const range = { from: '2026-11-11', to: '2026-11-12' };
+		expect((await readWork(range)).totals).toEqual({ seconds: 3_600, amountOre: '1' });
+		const originalAllocations = await database.entryDayAllocation.findMany({ where: { entryId: entry.id }, orderBy: { localDate: 'asc' } });
+		const removal = await request('POST', `${url}/delete`, { revision: entry.revision });
+		expect(removal.statusCode).toBe(200);
+		const trash = parseTrashedEntryResponse(removal.json());
+		expect(trash).toEqual({ entry: { ...entry, revision: 2, deletedAt: now }, deletedAt: now, restoreUntil: '2026-12-15T23:30:00.000Z' });
+		expect((await app.inject({ url: entryTrashPath })).statusCode).toBe(401);
+		expect(parseEntryTrashResponse((await request('GET', entryTrashPath)).json())).toEqual([trash]);
+		expect(parseEntryListResponse((await request('GET', entriesPath)).json())).toEqual([]);
+		expect((await readWork(range)).totals).toEqual({ seconds: 0, amountOre: '0' });
+		expect((await request('GET', url)).statusCode).toBe(404);
+		expect((await request('GET', `${url}/history`)).statusCode).toBe(404);
+		expect((await request('POST', `${url}/edit-preview`, change(trash.entry))).statusCode).toBe(404);
+		expect((await request('PUT', url, change(trash.entry))).statusCode).toBe(404);
+		expect((await request('POST', `${url}/complete`, { revision: 2, description: 'Still deleted', rateOverrideOrePerHour: null })).statusCode).toBe(404);
+		expect((await request('POST', `${url}/delete`, { revision: 2 })).json()).toMatchObject({ code: 'ENTRY_ALREADY_DELETED' });
+		expect((await request('POST', `${url}/restore`, { revision: 1 })).json()).toMatchObject({ code: 'REVISION_CONFLICT' });
+		const reassignment = await request('PUT', `${projectsPath}/${project.id}`, { clientId: null,
+			name: project.name, notes: null, defaultBillable: true, rateOverrideOrePerHour: null, revision: 1 });
+		expect(reassignment.json()).toMatchObject({ code: 'PROJECT_CLIENT_LOCKED' });
+		await database.client.update({ where: { id: client.id }, data: { archivedAt: new Date(now), defaultRateOrePerHour: 90_000n } });
+		await database.project.update({ where: { id: project.id }, data: { archivedAt: new Date(now) } });
+		const overlapping = await createTimedEntry({ description: 'Allowed while old interval is in trash' });
+		expect(overlapping.id).not.toBe(entry.id);
+		const restored = await request('POST', `${url}/restore`, { revision: 2 });
+		expect(restored.statusCode).toBe(200);
+		const active = parseEntryResponse(restored.json());
+		expect(active).toEqual({ ...entry, revision: 3 });
+		expect(await database.entryDayAllocation.findMany({ where: { entryId: entry.id }, orderBy: { localDate: 'asc' } })).toEqual(originalAllocations);
+		expect((await readWork(range)).totals).toEqual({ seconds: 7_200, amountOre: '1' });
+		expect(parseEntryTrashResponse((await request('GET', entryTrashPath)).json())).toEqual([]);
+		const history = parseEntryHistoryResponse((await request('GET', `${url}/history`)).json());
+		expect(history).toHaveLength(3);
+		expect(history.find(({ action }) => action === 'deleted')).toMatchObject({ before: entry, after: trash.entry });
+		expect(history.find(({ action }) => action === 'restored')).toMatchObject({ before: trash.entry, after: active });
+	});
+
+	it('allows restore just before the deadline and retains an inaccessible tombstone from the exact expiry onward', async () => {
+		const eligible = await createEntry({ description: 'Restore at final instant' });
+		const expired = await createEntry({ description: 'Keep tombstone' });
+		for (const entry of [eligible, expired]) expect((await request('POST', `${entriesPath}/${entry.id}/delete`, { revision: 1 })).statusCode).toBe(200);
+		now = '2026-12-15T23:29:59.999Z';
+		expect(parseEntryTrashResponse((await request('GET', entryTrashPath)).json())).toHaveLength(2);
+		expect((await request('POST', `${entriesPath}/${eligible.id}/restore`, { revision: 2 })).statusCode).toBe(200);
+		now = '2026-12-15T23:30:00.000Z';
+		expect(parseEntryTrashResponse((await request('GET', entryTrashPath)).json())).toEqual([]);
+		const expiredUrl = `${entriesPath}/${expired.id}`;
+		expect((await request('POST', `${expiredUrl}/restore`, { revision: 2 })).json()).toMatchObject({ code: 'ENTRY_RESTORE_EXPIRED' });
+		expect((await request('GET', expiredUrl)).statusCode).toBe(404);
+		expect(await database.entry.findUnique({ where: { id: expired.id } })).toMatchObject({ revision: 2, deletedAt: new Date('2026-11-15T23:30:00.000Z') });
+		expect(await database.entryHistory.count({ where: { entryId: expired.id } })).toBe(2);
+		expect(await database.entryDayAllocation.count({ where: { entryId: expired.id } })).toBe(1);
+	});
+
+	it('rejects invoiced deletion and makes concurrent trash transitions and history writes atomic', async () => {
+		const entry = await createEntry();
+		const url = `${entriesPath}/${entry.id}`;
+		await database.entry.update({ where: { id: entry.id }, data: { invoicedAt: new Date(now) } });
+		expect((await request('POST', `${url}/delete`, { revision: 1 })).json()).toMatchObject({ code: 'ENTRY_INVOICED' });
+		await database.entry.update({ where: { id: entry.id }, data: { invoicedAt: null } });
+		await database.$executeRaw`CREATE TRIGGER "test_fail_delete_history" BEFORE INSERT ON "EntryHistory"
+			WHEN NEW."action" = 'deleted' BEGIN SELECT RAISE(ABORT, 'Test delete history failure'); END`;
+		expect((await request('POST', `${url}/delete`, { revision: 1 })).statusCode).toBe(500);
+		expect(parseEntryResponse((await request('GET', url)).json())).toEqual(entry);
+		await database.$executeRaw`DROP TRIGGER "test_fail_delete_history"`;
+		const deletions = await Promise.all([1, 1].map((revision) => request('POST', `${url}/delete`, { revision })));
+		expect(deletions.map(({ statusCode }) => statusCode).sort()).toEqual([200, 409]);
+		expect(deletions.find(({ statusCode }) => statusCode === 409)?.json()).toMatchObject({ code: 'REVISION_CONFLICT' });
+		const restores = await Promise.all([2, 2].map((revision) => request('POST', `${url}/restore`, { revision })));
+		expect(restores.map(({ statusCode }) => statusCode).sort()).toEqual([200, 409]);
+		expect(restores.find(({ statusCode }) => statusCode === 409)?.json()).toMatchObject({ code: 'REVISION_CONFLICT' });
+		expect((await request('POST', `${url}/restore`, { revision: 3 })).json()).toMatchObject({ code: 'ENTRY_NOT_DELETED' });
+		expect(await database.entryHistory.count({ where: { entryId: entry.id } })).toBe(3);
 	});
 });

@@ -139,6 +139,13 @@ const entryDetailRoute = createRoute({
 	component: lazyRouteComponent(() => import('./entries'), 'EntryDetail'),
 });
 
+const entryTrashRoute = createRoute({
+	getParentRoute: () => protectedRoute,
+	path: '/entries/trash',
+	validateSearch: validateWorkListLocation,
+	component: lazyRouteComponent(() => import('./entry-trash'), 'EntryTrash'),
+});
+
 export const router = createRouter({
 	parseSearch: (search) => Object.fromEntries(new URLSearchParams(search)),
 	stringifySearch: (search) => {
@@ -151,11 +158,15 @@ export const router = createRouter({
 	},
 	routeTree: rootRoute.addChildren([
 		loginRoute,
-		protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute, entriesRoute, entryDetailRoute]),
+		protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute, entriesRoute, entryDetailRoute, entryTrashRoute]),
 	]),
 });
 
 declare module '@tanstack/react-router' {
+	interface HistoryState {
+		entryMovedToTrash?: boolean;
+	}
+
 	interface Register {
 		router: typeof router;
 	}

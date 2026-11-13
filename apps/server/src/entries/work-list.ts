@@ -2,7 +2,7 @@ import { defaultWorkListPageSize, maxWorkListPageSize } from '@timekeeper/contra
 import type { WorkListQuery, WorkListResponse } from '@timekeeper/contracts';
 import { ApiRequestError } from '../api-error.ts';
 import type { PrismaClient } from '../generated/prisma/client.ts';
-import { entryRelations, entryResponse } from './entry-record.ts';
+import { activeEntryWhere, entryRelations, entryResponse } from './entry-record.ts';
 import { readCompletedWork, resolveWorkScope, totalCompletedWork, workDateRange } from './work-scope.ts';
 
 function compareText(left: string, right: string) {
@@ -30,7 +30,7 @@ export function createWorkList(database: PrismaClient, now: () => Date = () => n
 			));
 			const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
 			const ids = [...new Set(pageRows.map(({ entryId }) => entryId))];
-			const pageEntries = ids.length ? await transaction.entry.findMany({ where: { accountId, id: { in: ids } }, include: entryRelations }) : [];
+			const pageEntries = ids.length ? await transaction.entry.findMany({ where: { ...activeEntryWhere(accountId), id: { in: ids } }, include: entryRelations }) : [];
 			const entries = new Map(pageEntries.map((entry) => [entry.id, entryResponse(entry)]));
 			const groups: WorkListResponse['groups'] = [];
 			for (const row of pageRows) {

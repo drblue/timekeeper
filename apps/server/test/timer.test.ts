@@ -422,4 +422,23 @@ describe('Durable timer', () => {
 		expect((await post(timerSwitchPath, { timerId: pickedNull.timer.id, revision: 1, next: current.request })).json()).toMatchObject({ code: 'INVALID_CLIENT' });
 		expect(parseTimerStateResponse((await app.inject({ url: timerPath, ...session })).json()).timer?.id).toBe(pickedNull.timer.id);
 	});
+
+	it('cannot continue a source moved to trash and still replays earlier timer receipts', async () => {
+		const { timer } = await started(work({ description: 'Continuable work' }));
+		now = '2026-10-24T21:31:00.000Z';
+		const stopKey = randomUUID();
+		const stoppedWork = await stopped(timer, stopKey);
+		const { entry } = stoppedWork;
+		const url = `${entriesPath}/${entry.id}`;
+		const preview = await continuation(entry.id);
+		expect((await post(`${url}/delete`, { revision: entry.revision })).statusCode).toBe(200);
+		expect((await app.inject({ url: `${url}/continue`, ...session })).statusCode).toBe(404);
+		expect((await start(preview.request)).statusCode).toBe(404);
+		const next = await started(work({ description: 'Active timer' }));
+		const switchAttempt = await post(timerSwitchPath, { timerId: next.timer.id, revision: next.timer.revision, next: preview.request });
+		expect(switchAttempt.statusCode).toBe(404);
+		expect(await database.entry.count()).toBe(1);
+		expect(parseTimerStateResponse((await app.inject({ url: timerPath, ...session })).json()).timer).toEqual(next.timer);
+		expect((await stopped(timer, stopKey))).toEqual(stoppedWork);
+	});
 });

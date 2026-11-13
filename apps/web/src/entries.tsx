@@ -1,14 +1,15 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getRouteApi, Link, useNavigate } from '@tanstack/react-router';
-import { entriesPath, formatStockholmLocalTime, parseEntryResponse, parseWorkListResponse, workListPath } from '@timekeeper/contracts';
+import { getRouteApi, Link, useLocation, useNavigate } from '@tanstack/react-router';
+import { entriesPath, parseEntryResponse, parseWorkListResponse, workListPath } from '@timekeeper/contracts';
 import type { EntryResponse, WorkListRange } from '@timekeeper/contracts';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { ApiRequestError, readApi } from './api';
 import { useSession } from './auth';
 import { EntryCompletion } from './entry-completion';
+import { EntryDelete } from './entry-delete';
 import { EntryContinue } from './entry-continue';
 import { entriesKey } from './entry-query';
-import { displayClock } from './entry-time';
+import { formatDuration, StockholmTime } from './entry-display';
 import { EntryHistory } from './entry-history';
 import { EntryEditor } from './entry-editor';
 import { WorkListFilters } from './work-list-filters';
@@ -18,20 +19,6 @@ import { formatSek } from './money';
 
 const workListRoute = getRouteApi('/protected/entries');
 const entryDetailRoute = getRouteApi('/protected/entries/$entryId');
-
-function formatDuration(seconds: number) {
-	const hours = Math.floor(seconds / 3600);
-	const minutes = Math.floor(seconds % 3600 / 60);
-	const remainder = seconds % 60;
-	return [hours ? `${hours} h` : '', minutes ? `${minutes} min` : '', remainder ? `${remainder} s` : '']
-		.filter(Boolean)
-		.join(' ') || '0 s';
-}
-
-function StockholmTime({ instant }: { instant: string }) {
-	const { local, offset } = formatStockholmLocalTime(instant);
-	return <time dateTime={instant}>{local.slice(0, 10)} {displayClock(local.slice(11))} (UTC{offset})</time>;
-}
 
 const dayHeading = new Intl.DateTimeFormat('en-GB', {
 	timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'short',
@@ -94,6 +81,7 @@ export function Entries() {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate({ from: '/entries' });
 	const location = workListRoute.useSearch();
+	const movedToTrash = useLocation({ select: ({ state }) => state.entryMovedToTrash === true });
 	const search = effectiveWorkListSearch(location);
 	const filterKey = workListQueryString(search);
 	const positionKey = (session.account?.email ?? '') + '\n' + workListQueryString(unpinWorkListSearch(location));
@@ -108,6 +96,7 @@ export function Entries() {
 	const [savedId, setSavedId] = useState<string | null>(null);
 	const editorTrigger = useRef<HTMLButtonElement>(null);
 	const results = useRef<HTMLHeadingElement>(null);
+	const heading = useRef<HTMLHeadingElement>(null);
 	const restored = useRef<string | null>(null);
 	const pageFocus = useRef(false);
 	const data = entries.data;
@@ -144,7 +133,10 @@ export function Entries() {
 		const remembered = workListPosition?.key === positionKey ? workListPosition.row : undefined;
 		workListPosition = undefined;
 		const rowId = location.returnRow ?? remembered?.returnRow;
-		if (!rowId) return;
+		if (!rowId) {
+			if (movedToTrash) heading.current?.focus();
+			return;
+		}
 		const row = document.getElementById(rowId);
 		if (!row) {
 			results.current?.focus();
@@ -153,16 +145,20 @@ export function Entries() {
 		const offset = remembered?.returnOffset ?? location.returnOffset ?? 0;
 		row.querySelector('a')?.focus({ preventScroll: true });
 		window.scrollBy(0, row.getBoundingClientRect().top - offset);
-	}, [data, entries.isError, entries.isFetching, filterKey, location.returnOffset, location.returnRow, positionKey]);
+	}, [data, entries.isError, entries.isFetching, filterKey, location.returnOffset, location.returnRow, movedToTrash, positionKey]);
 
 	const showPaging = data && data.totalPages > 1;
 	return (
 		<section className="entry-page" aria-labelledby="entries-heading">
 			<div className="catalog-toolbar">
-				<h1 id="entries-heading">Time entries</h1>
-				<button type="button" className="primary" ref={editorTrigger} disabled={editing}
-					onClick={() => { setSavedId(null); setEditing(true); }}>New time entry</button>
+				<h1 id="entries-heading" tabIndex={-1} ref={heading}>Time entries</h1>
+				<div className="form-actions">
+					<Link className="action-link" to="/entries/trash" search={location}>Trash</Link>
+					<button type="button" className="primary" ref={editorTrigger} disabled={editing}
+						onClick={() => { setSavedId(null); setEditing(true); }}>New time entry</button>
+				</div>
 			</div>
+			{movedToTrash ? <p className="feedback" role="status">Time entry moved to Trash.</p> : null}
 			{editing ? <EntryEditor onClose={closeEditor} onSaved={saved} /> : null}
 			{savedId ? (
 				<p className="feedback" role="status">
@@ -229,6 +225,7 @@ export function Entries() {
 export function EntryDetail() {
 	const { entryId } = entryDetailRoute.useParams();
 	const listSearch = entryDetailRoute.useSearch();
+	const navigate = useNavigate({ from: '/entries/$entryId' });
 	const { refresh } = useSession();
 	const queryClient = useQueryClient();
 	const [feedback, setFeedback] = useState<{ id: string; text: string } | null>(null);
@@ -252,6 +249,17 @@ export function EntryDetail() {
 		void queryClient.invalidateQueries({ queryKey: entriesKey });
 	}
 
+	function deleted() {
+		void queryClient.invalidateQueries({ queryKey: entriesKey, refetchType: 'none' });
+		void navigate({
+			to: '/entries',
+			search: listSearch,
+			state: { entryMovedToTrash: true },
+			replace: true,
+			resetScroll: false,
+		});
+	}
+
 	return (
 		<section className="entry-page" aria-labelledby="entry-heading">
 			<div><Link to="/entries" search={listSearch} resetScroll={false}>Back to time entries</Link></div>
@@ -260,7 +268,7 @@ export function EntryDetail() {
 			{entry.isError ? (
 				<div className="feedback error catalog-load-error">
 					<p role="alert">{missing ? 'This time entry is unavailable.' : 'Could not load this time entry. Check your connection and try again.'}</p>
-					{missing ? null : <button type="button" onClick={() => void entry.refetch()} disabled={entry.isFetching}>Try again</button>}
+					{missing ? <Link to="/entries/trash" search={listSearch}>Open Trash</Link> : <button type="button" onClick={() => void entry.refetch()} disabled={entry.isFetching}>Try again</button>}
 				</div>
 			) : null}
 			{data && !missing ? (
@@ -305,7 +313,7 @@ export function EntryDetail() {
 					) : (
 						<>
 							{data.invoicedAt ? (
-								<p className="feedback warning">This entry is invoiced. Unmark it before editing.</p>
+								<p className="feedback warning">This entry is invoiced. Unmark it before editing or moving it to Trash.</p>
 							) : data.completion === 'complete' ? (
 								<div className="form-actions">
 									<button type="button" onClick={() => { setFeedback(null); setEditingEntry(data); }}>Edit entry</button>
@@ -314,6 +322,11 @@ export function EntryDetail() {
 							<EntryContinue key={'continue:' + entryId} entryId={entryId} onFallbackFocus={focusHeading} />
 							{data.completion === 'incomplete' && !data.invoicedAt ? <EntryCompletion key={'completion:' + entryId} entry={data}
 								onSaved={(saved) => savedEntry(saved, 'Time entry completed.')} onRefresh={() => void entry.refetch()} /> : null}
+							{!data.invoicedAt ? <EntryDelete key={'delete:' + entryId} entry={data} onDeleted={deleted}
+								onRefresh={async () => {
+									const latest = await entry.refetch();
+									return latest.isSuccess ? latest.data : undefined;
+								}} /> : null}
 						</>
 					)}
 					<EntryHistory key={'history:' + entryId} entryId={entryId} />

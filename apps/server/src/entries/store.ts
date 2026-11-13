@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { parseEntryResponse } from '@timekeeper/contracts';
-import type { CompleteEntryBody, CreateEntryBody, EntryEditBody, EntryEditPreview, EntryEditTime, EntryHistoryResponse, EntryResponse, TimedEntryResponse } from '@timekeeper/contracts';
+import type { CompleteEntryBody, CreateEntryBody, EntryEditBody, EntryEditPreview, EntryEditTime, EntryHistoryResponse, EntryResponse, EntryTrashResponse, TimedEntryResponse, TrashedEntryResponse } from '@timekeeper/contracts';
 import { writeForAccount } from '../account-write.ts';
 import { ApiRequestError } from '../api-error.ts';
 import { parseHourlyRateOre } from '../billing.ts';
@@ -10,10 +10,11 @@ import type { EntryDaySegment } from './timed-entry.ts';
 import { billingDefaults, resolveWorkSettings, validateWorkAssociation, workDescription } from './work-settings.ts';
 import type { WorkSettings } from './work-settings.ts';
 import { createWorkList } from './work-list.ts';
-import { entryBilling, entryRelations, entryResponse, requireCompleteAmount } from './entry-record.ts';
+import { activeEntryWhere, entryBilling, entryRelations, entryResponse, requireCompleteAmount } from './entry-record.ts';
 import type { EntryWithRelations } from './entry-record.ts';
 
 const allocationCalculationVersion = 1;
+const trashRetentionMs = 30 * 24 * 60 * 60 * 1_000;
 function checkLocalDate(localDate: string) {
 	const year = Number(localDate.slice(0, 4));
 	const month = Number(localDate.slice(5, 7));
@@ -66,12 +67,38 @@ function readHistorySnapshot(snapshot: string, id: string): EntryResponse {
 	return entry;
 }
 
-async function editableEntry(transaction: Prisma.TransactionClient, accountId: string, id: string, revision: number) {
-	const current = await transaction.entry.findUnique({ where: { id, accountId }, include: entryRelations });
-	if (!current) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
-	if (current.invoicedAt) throw new ApiRequestError(409, 'ENTRY_INVOICED', 'Unmark this entry as invoiced before editing it.');
+function checkEntryRevision(current: EntryWithRelations, revision: number) {
 	if (current.revision !== revision) throw new ApiRequestError(409, 'REVISION_CONFLICT', 'Time entry changed. Reload and try again.');
+}
+
+function requireUninvoicedEntry(current: EntryWithRelations, action: 'editing' | 'deleting') {
+	if (current.invoicedAt) throw new ApiRequestError(409, 'ENTRY_INVOICED', `Unmark this entry as invoiced before ${action} it.`);
+}
+
+async function editableEntry(transaction: Prisma.TransactionClient, accountId: string, id: string, revision: number) {
+	const current = await transaction.entry.findUnique({ where: { id, ...activeEntryWhere(accountId) }, include: entryRelations });
+	if (!current) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
+	requireUninvoicedEntry(current, 'editing');
+	checkEntryRevision(current, revision);
 	return current;
+}
+
+function trashedEntryResponse(entry: EntryResponse): TrashedEntryResponse {
+	if (!entry.deletedAt) throw new Error('Trashed entry did not have a deletion date.');
+	return { entry, deletedAt: entry.deletedAt, restoreUntil: new Date(Date.parse(entry.deletedAt) + trashRetentionMs).toISOString() };
+}
+
+async function changeEntryDeletion(
+	transaction: Prisma.TransactionClient, current: EntryWithRelations, deletedAt: Date | null, now: Date,
+): Promise<EntryResponse> {
+	const { id, accountId, revision } = current;
+	const updated = await transaction.entry.update({
+		where: { id, accountId, revision, deletedAt: current.deletedAt, ...(deletedAt ? { invoicedAt: null } : {}) },
+		data: { deletedAt, revision: { increment: 1 } }, include: entryRelations,
+	});
+	const response = entryResponse(updated);
+	await recordHistory(transaction, deletedAt ? 'deleted' : 'restored', now, response, entryResponse(current));
+	return response;
 }
 
 function savedTime(current: EntryWithRelations): EntryTime {
@@ -83,7 +110,7 @@ function savedTime(current: EntryWithRelations): EntryTime {
 async function overlappingEntry(transaction: Prisma.TransactionClient, accountId: string, time: EntryTime, except?: string) {
 	if (!time.startAt || !time.endAt) return false;
 	return Boolean(await transaction.entry.findFirst({
-		where: { accountId, id: except ? { not: except } : undefined, kind: 'timed', durationSeconds: { gt: 0 },
+		where: { ...activeEntryWhere(accountId), id: except ? { not: except } : undefined, kind: 'timed', durationSeconds: { gt: 0 },
 			startAt: { lt: time.endAt }, endAt: { gt: time.startAt } },
 		select: { id: true },
 	}));
@@ -141,7 +168,7 @@ async function replaceEntry(
 	const { id, accountId, revision } = current;
 	if (time) await transaction.entryDayAllocation.deleteMany({ where: { entryId: id } });
 	const updated = await transaction.entry.update({
-		where: { id, accountId, revision, invoicedAt: null },
+		where: { id, ...activeEntryWhere(accountId), revision, invoicedAt: null },
 		data: {
 			kind, ...work, billableAmountOre, completion: 'complete', revision: { increment: 1 },
 			...(time ? {
@@ -176,12 +203,12 @@ export async function writeEntry(
 	return response;
 }
 
-export function createEntryStore(database: PrismaClient, now?: () => Date) {
+export function createEntryStore(database: PrismaClient, now: () => Date = () => new Date()) {
 	return {
 		getWorkList: createWorkList(database, now),
 		async listEntries(accountId: string): Promise<EntryResponse[]> {
 			const entries = await database.$transaction((transaction) => transaction.entry.findMany({
-				where: { accountId },
+				where: activeEntryWhere(accountId),
 				include: entryRelations,
 				orderBy: [{ localDate: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
 			}));
@@ -190,12 +217,47 @@ export function createEntryStore(database: PrismaClient, now?: () => Date) {
 
 		async getEntry(accountId: string, id: string): Promise<EntryResponse> {
 			const entry = await database.$transaction((transaction) => transaction.entry.findUnique({
-				where: { id, accountId }, include: entryRelations,
+				where: { id, ...activeEntryWhere(accountId) }, include: entryRelations,
 			}));
 			if (!entry) {
 				throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
 			}
 			return entryResponse(entry);
+		},
+
+		async listTrash(accountId: string): Promise<EntryTrashResponse> {
+			const cutoff = new Date(now().getTime() - trashRetentionMs);
+			const entries = await database.$transaction((transaction) => transaction.entry.findMany({
+				where: { accountId, deletedAt: { gt: cutoff } }, include: entryRelations,
+				orderBy: [{ deletedAt: 'desc' }, { id: 'desc' }],
+			}));
+			return entries.map((entry) => trashedEntryResponse(entryResponse(entry)));
+		},
+
+		deleteEntry(accountId: string, id: string, revision: number): Promise<TrashedEntryResponse> {
+			return writeForAccount(database, accountId, async (transaction) => {
+				const current = await transaction.entry.findUnique({ where: { id, accountId }, include: entryRelations });
+				if (!current) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
+				requireUninvoicedEntry(current, 'deleting');
+				checkEntryRevision(current, revision);
+				if (current.deletedAt) throw new ApiRequestError(409, 'ENTRY_ALREADY_DELETED', 'This time entry is already in the trash.');
+				const deletedAt = now();
+				return trashedEntryResponse(await changeEntryDeletion(transaction, current, deletedAt, deletedAt));
+			});
+		},
+
+		restoreEntry(accountId: string, id: string, revision: number): Promise<EntryResponse> {
+			return writeForAccount(database, accountId, async (transaction) => {
+				const current = await transaction.entry.findUnique({ where: { id, accountId }, include: entryRelations });
+				if (!current) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
+				checkEntryRevision(current, revision);
+				if (!current.deletedAt) throw new ApiRequestError(409, 'ENTRY_NOT_DELETED', 'This time entry is no longer in the trash.');
+				const restoredAt = now();
+				if (restoredAt.getTime() >= current.deletedAt.getTime() + trashRetentionMs) {
+					throw new ApiRequestError(409, 'ENTRY_RESTORE_EXPIRED', 'The 30-day restore period has ended.');
+				}
+				return changeEntryDeletion(transaction, current, null, restoredAt);
+			});
 		},
 
 		createEntry(accountId: string, input: CreateEntryBody): Promise<EntryResponse> {
@@ -212,11 +274,13 @@ export function createEntryStore(database: PrismaClient, now?: () => Date) {
 
 		async getHistory(accountId: string, id: string): Promise<EntryHistoryResponse> {
 			return database.$transaction(async (transaction) => {
-				const owner = await transaction.entry.findUnique({ where: { id, accountId }, select: { id: true } });
+				const owner = await transaction.entry.findUnique({ where: { id, ...activeEntryWhere(accountId) }, select: { id: true } });
 				if (!owner) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
 				const rows = await transaction.entryHistory.findMany({ where: { entryId: id }, orderBy: [{ at: 'desc' }, { id: 'desc' }] });
 				return rows.map(({ id: historyId, action, at, beforeSnapshot, afterSnapshot }) => {
-					if (action !== 'created' && action !== 'completed' && action !== 'edited') throw new Error('Invalid time entry history action');
+					if (action !== 'created' && action !== 'completed' && action !== 'edited' && action !== 'deleted' && action !== 'restored') {
+						throw new Error('Invalid time entry history action');
+					}
 					return { id: historyId, action, at: at.toISOString(),
 						before: beforeSnapshot === null ? null : readHistorySnapshot(beforeSnapshot, id), after: readHistorySnapshot(afterSnapshot, id) };
 				});

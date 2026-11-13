@@ -92,6 +92,7 @@ model Entry {
 	completion             String               @default("complete")
 	invoicedAt             DateTime?
 	invoiceNumber          String?
+	deletedAt              DateTime?
 	revision               Int                  @default(1)
 	createdAt              DateTime             @default(now())
 	allocations            EntryDayAllocation[]
@@ -102,6 +103,7 @@ model Entry {
 	@@index([accountId, directClientId])
 	@@index([accountId, startAt, endAt])
 	@@index([accountId, invoicedAt])
+	@@index([accountId, deletedAt])
 }
 
 model EntryDayAllocation {

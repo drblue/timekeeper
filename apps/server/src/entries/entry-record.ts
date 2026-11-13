@@ -12,6 +12,10 @@ export const entryRelations = {
 
 export type EntryWithRelations = Prisma.EntryGetPayload<{ include: typeof entryRelations }>;
 
+export function activeEntryWhere(accountId: string) {
+	return { accountId, deletedAt: null } satisfies Prisma.EntryWhereInput;
+}
+
 export function entryResponse(entry: EntryWithRelations): EntryResponse {
 	const fields = {
 		id: entry.id,
@@ -24,6 +28,7 @@ export function entryResponse(entry: EntryWithRelations): EntryResponse {
 		revision: entry.revision,
 		...(entry.invoicedAt ? { invoicedAt: entry.invoicedAt.toISOString() } : {}),
 		...(entry.invoiceNumber !== null ? { invoiceNumber: entry.invoiceNumber } : {}),
+		...(entry.deletedAt ? { deletedAt: entry.deletedAt.toISOString() } : {}),
 	};
 	if (entry.kind === 'duration-only' && entry.completion === 'complete' && entry.billableAmountOre !== null) {
 		return { kind: entry.kind, completion: 'complete', ...fields, billableAmountOre: entry.billableAmountOre.toString() };
