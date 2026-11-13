@@ -47,7 +47,7 @@ export function workDescription(input: string, allowEmpty = false): string {
 	return description;
 }
 
-async function billingDefaults(
+export async function billingDefaults(
 	transaction: Prisma.TransactionClient, accountId: string, projectId: string | null, directClientId: string | null,
 ): Promise<{ billable: boolean; rateOrePerHour: bigint | null }> {
 	if (projectId !== null) {

@@ -1,8 +1,9 @@
-import type { StartTimerBody, StopTimerBody } from '@timekeeper/contracts';
+import type { StartTimerRequest, StopTimerBody, SwitchTimerBody } from '@timekeeper/contracts';
 
 export type TimerOperation =
-	| { kind: 'start'; key: string; body: StartTimerBody }
-	| { kind: 'stop'; key: string; body: StopTimerBody };
+	| { kind: 'start'; key: string; body: StartTimerRequest }
+	| { kind: 'stop'; key: string; body: StopTimerBody }
+	| { kind: 'switch'; key: string; body: SwitchTimerBody };
 
 const storageKey = 'timekeeper.timer-operation';
 
@@ -11,7 +12,7 @@ export function readTimerOperation(account: string): TimerOperation | null {
 		const raw = sessionStorage.getItem(storageKey);
 		if (!raw) return null;
 		const stored = JSON.parse(raw);
-		if (stored.account !== account || !['start', 'stop'].includes(stored.operation?.kind) ||
+		if (stored.account !== account || !['start', 'stop', 'switch'].includes(stored.operation?.kind) ||
 			typeof stored.operation.key !== 'string' || !stored.operation.body) return null;
 		return stored.operation;
 	} catch {

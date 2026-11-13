@@ -3,10 +3,12 @@ import { defineConfig } from '@playwright/test';
 const host = '127.0.0.1';
 const catalogSpecs = '**/catalog.spec.ts';
 const entrySpecs = '**/entries.spec.ts';
+const transitionSpecs = '**/timer-transitions.spec.ts';
 const suites = [
-	{ prefix: '', firstPort: 4317, filter: { testIgnore: [catalogSpecs, entrySpecs] } },
+	{ prefix: '', firstPort: 4317, filter: { testIgnore: [catalogSpecs, entrySpecs, transitionSpecs] } },
 	{ prefix: 'catalog-', firstPort: 4319, filter: { testMatch: catalogSpecs } },
 	{ prefix: 'entries-', firstPort: 4321, filter: { testMatch: entrySpecs } },
+	{ prefix: 'transitions-', firstPort: 4323, filter: { testMatch: transitionSpecs } },
 ];
 const viewports = [
 	{ name: 'desktop', use: { viewport: { width: 1280, height: 800 } } },

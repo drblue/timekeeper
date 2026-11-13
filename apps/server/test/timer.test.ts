@@ -12,16 +12,19 @@ import {
 	idempotencyKeyHeader,
 	maxHourlyRateOre,
 	parseAuthSessionResponse,
+	parseContinueEntryPreview,
 	parseEntryListResponse,
 	parseEntryResponse,
 	parseStopTimerResponse,
+	parseSwitchTimerResponse,
 	parseTimerStateResponse,
 	projectsPath,
 	timerPath,
 	timerStartPath,
 	timerStopPath,
+	timerSwitchPath,
 } from '@timekeeper/contracts';
-import type { RunningTimerResponse, StartTimerBody } from '@timekeeper/contracts';
+import type { ContinueTimerBody, RunningTimerResponse, StartTimerBody, StartTimerRequest } from '@timekeeper/contracts';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { openDatabase } from '../src/auth/database.ts';
@@ -101,12 +104,12 @@ describe('Durable timer', () => {
 		return app.inject({ ...session, method: 'POST', url, payload, headers: { ...session.headers, [idempotencyKeyHeader]: key } });
 	}
 
-	function start(payload = work(), key?: string) { return post(timerStartPath, payload, key); }
+	function start(payload: StartTimerRequest = work(), key?: string) { return post(timerStartPath, payload, key); }
 	function stop(timer: RunningTimerResponse, key?: string) {
 		return post(timerStopPath, { timerId: timer.id, revision: timer.revision }, key);
 	}
 
-	async function started(payload?: StartTimerBody, key?: string) {
+	async function started(payload?: StartTimerRequest, key?: string) {
 		const response = await start(payload, key);
 		expect(response.statusCode, response.body).toBe(201);
 		const result = parseTimerStateResponse(response.json());
@@ -118,6 +121,15 @@ describe('Durable timer', () => {
 		const response = await stop(timer, key);
 		expect(response.statusCode, response.body).toBe(200);
 		return parseStopTimerResponse(response.json());
+	}
+
+	async function continuation(entryId: string, rateChoice: ContinueTimerBody['rateChoice'] = 'saved') {
+		const response = await app.inject({ url: `${entriesPath}/${entryId}/continue`, ...session });
+		expect(response.statusCode, response.body).toBe(200);
+		const preview = parseContinueEntryPreview(response.json());
+		return { preview, request: {
+			entryId, entryRevision: preview.revision, rateChoice, expectedDefaultRateOrePerHour: preview.currentDefaultRateOrePerHour,
+		} };
 	}
 
 	it('reopens the same durable timer across restart, then saves DST elapsed work, allocations and history', async () => {
@@ -283,5 +295,131 @@ describe('Durable timer', () => {
 		expect((await post(`${entriesPath}/${ownerEntry.id}/complete`, {
 			description: 'Foreign edit', rateOverrideOrePerHour: null, revision: 1,
 		})).statusCode).toBe(404);
+		expect((await app.inject({ url: `${entriesPath}/${ownerEntry.id}/continue`, ...session })).statusCode).toBe(404);
+		expect((await start({ entryId: ownerEntry.id, entryRevision: 1, rateChoice: 'saved', expectedDefaultRateOrePerHour: null })).json())
+			.toMatchObject({ code: 'TIMER_RUNNING' });
+		expect((await post(timerSwitchPath, { timerId: owner.timer.id, revision: 1, next: work() })).json()).toMatchObject({ code: 'TIMER_CONFLICT' });
+		expect((await post(timerSwitchPath, {
+			timerId: foreign.timer.id, revision: 1,
+			next: { entryId: ownerEntry.id, entryRevision: 1, rateChoice: 'saved', expectedDefaultRateOrePerHour: null },
+		})).statusCode).toBe(404);
+		expect(await database.runningTimer.count()).toBe(1);
+	});
+
+	it('requires explicit switch, saves both sides at one instant and replays the original switch response', async () => {
+		const { timer } = await started(work({ description: 'Current work', billable: true, rateOverrideOrePerHour: '3600' }));
+		const next = work({ description: 'Next work', billable: false, rateOverrideOrePerHour: '0' });
+		now = '2026-10-24T21:40:00.820Z';
+		expect((await start(next)).json()).toMatchObject({ code: 'TIMER_RUNNING' });
+		const payload = { timerId: timer.id, revision: timer.revision, next };
+		expect((await post(timerSwitchPath, { ...payload, revision: timer.revision + 1 })).json()).toMatchObject({ code: 'TIMER_CONFLICT' });
+		expect((await post(timerSwitchPath, { ...payload, next: work({ directClientId: randomUUID() }) })).json()).toMatchObject({ code: 'INVALID_CLIENT' });
+		expect(await database.entry.count()).toBe(0);
+		expect(await database.operationReceipt.count()).toBe(1);
+		expect(parseTimerStateResponse((await app.inject({ url: timerPath, ...session })).json()).timer).toEqual(timer);
+		const key = randomUUID();
+		const attempts = await Promise.all([post(timerSwitchPath, payload, key), post(timerSwitchPath, payload, key)]);
+		expect(attempts.map(({ statusCode }) => statusCode)).toEqual([200, 200]);
+		const result = parseSwitchTimerResponse(attempts[0]!.json());
+		expect(attempts[1]?.json()).toEqual(result);
+		expect(result.serverNow).toBe(now);
+		expect(result.entry).toMatchObject({ description: 'Current work', endAt: '2026-10-24T21:40:00.000Z', durationSeconds: 600, billableAmountOre: '600' });
+		expect(result.timer).toMatchObject({ description: 'Next work', startAt: result.entry.endAt, assignedRateOrePerHour: '0', billable: false });
+		expect(result.timer.id).not.toBe(timer.id);
+		expect((await post(timerSwitchPath, { ...payload, next: work({ description: 'Other' }) }, key)).json()).toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' });
+		expect((await stop(result.timer, key)).json()).toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' });
+		expect(await database.entry.count()).toBe(1);
+		expect(await database.runningTimer.count()).toBe(1);
+		expect(await database.entryHistory.findFirst({ where: { entryId: result.entry.id } })).toMatchObject({ operationKey: key });
+		await stopped(result.timer);
+		expect((await post(timerSwitchPath, payload, key)).json()).toEqual(result);
+	});
+
+	it('rolls back a switch after the old timer was written if starting the replacement fails', async () => {
+		const { timer } = await started(work({ description: 'Current work' }));
+		now = '2026-10-24T21:31:00.000Z';
+		const payload = { timerId: timer.id, revision: timer.revision, next: work({ description: 'Replacement' }) };
+		const key = randomUUID();
+		await database.$executeRaw`CREATE TRIGGER "test_fail_replacement" BEFORE INSERT ON "RunningTimer"
+			BEGIN SELECT RAISE(ABORT, 'Test replacement failure'); END`;
+		expect((await post(timerSwitchPath, payload, key)).statusCode).toBe(500);
+		expect(await database.runningTimer.count()).toBe(1);
+		expect(await database.entry.count()).toBe(0);
+		expect(await database.entryDayAllocation.count()).toBe(0);
+		expect(await database.entryHistory.count()).toBe(0);
+		expect(await database.operationReceipt.count()).toBe(1);
+		await database.$executeRaw`DROP TRIGGER "test_fail_replacement"`;
+		const retry = await post(timerSwitchPath, payload, key);
+		expect(retry.statusCode).toBe(200);
+		const result = parseSwitchTimerResponse(retry.json());
+		expect(result.entry.endAt).toBe(result.timer.startAt);
+	});
+
+	it('continues copied work at the saved rate by default and supports the chosen current rate', async () => {
+		const client = await database.client.create({ data: { id: randomUUID(), accountId, name: 'Client', defaultRateOrePerHour: 80_000n } });
+		const project = await database.project.create({ data: { id: randomUUID(), accountId, name: 'Project', clientId: client.id } });
+		const sourceResponse = await post(entriesPath, {
+			kind: 'duration-only', description: 'Source work', localDate: '2026-10-20', durationSeconds: 3_600,
+			projectId: project.id, directClientId: null, rateOverrideOrePerHour: null,
+		});
+		expect(sourceResponse.statusCode).toBe(201);
+		const source = parseEntryResponse(sourceResponse.json());
+		const old = await continuation(source.id);
+		await database.client.update({ where: { id: client.id }, data: { defaultRateOrePerHour: 90_000n } });
+		expect((await start(old.request)).json()).toMatchObject({ code: 'CONTINUE_PREVIEW_CHANGED' });
+		expect(await database.runningTimer.count()).toBe(0);
+		const { preview, request } = await continuation(source.id);
+		expect(preview).toEqual({ entryId: source.id, revision: source.revision, description: 'Source work',
+			clientId: client.id, clientName: 'Client', projectId: project.id, projectName: 'Project', directClientId: null,
+			billable: true, assignedRateOrePerHour: '80000', currentDefaultRateOrePerHour: '90000' });
+		const saved = await started(request);
+		expect(saved.timer).toMatchObject({ description: 'Source work', clientId: client.id, projectId: project.id,
+			billable: true, assignedRateOrePerHour: '80000' });
+		const currentChoice = { ...request, rateChoice: 'current' as const };
+		expect((await start(currentChoice)).json()).toMatchObject({ code: 'TIMER_RUNNING' });
+		now = '2026-10-24T21:40:00.820Z';
+		const switchPayload = { timerId: saved.timer.id, revision: saved.timer.revision, next: currentChoice };
+		expect((await post(timerSwitchPath, { ...switchPayload, next: { ...currentChoice, entryRevision: source.revision + 1 } })).json())
+			.toMatchObject({ code: 'CONTINUE_PREVIEW_CHANGED' });
+		expect(await database.entry.count()).toBe(1);
+		const switchResponse = await post(timerSwitchPath, switchPayload);
+		expect(switchResponse.statusCode, switchResponse.body).toBe(200);
+		const switched = parseSwitchTimerResponse(switchResponse.json());
+		expect(switched.entry).toMatchObject({ description: 'Source work', assignedRateOrePerHour: '80000', durationSeconds: 600 });
+		expect(switched.entry.id).not.toBe(source.id);
+		expect(switched.timer).toMatchObject({ description: 'Source work', startAt: switched.entry.endAt, assignedRateOrePerHour: '90000' });
+		expect(parseEntryResponse((await app.inject({ url: `${entriesPath}/${source.id}`, ...session })).json())).toEqual(source);
+	});
+
+	it('preserves saved zero and null and uses a selected null default without changing billability', async () => {
+		const client = await database.client.create({ data: { id: randomUUID(), accountId, name: 'Client' } });
+		const { timer } = await started(work({ description: 'No assigned rate', directClientId: client.id }));
+		now = '2026-10-24T21:35:00.000Z';
+		const noRateEntry = (await stopped(timer)).entry;
+		expect(noRateEntry).toMatchObject({ billable: true, completion: 'incomplete', assignedRateOrePerHour: null });
+		await database.client.update({ where: { id: client.id }, data: { defaultRateOrePerHour: 90_000n } });
+		const missing = await continuation(noRateEntry.id);
+		const savedNull = await started(missing.request);
+		expect(savedNull.timer).toMatchObject({ billable: true, assignedRateOrePerHour: null });
+		const { timer: zeroTimer } = parseSwitchTimerResponse((await post(timerSwitchPath, {
+			timerId: savedNull.timer.id, revision: savedNull.timer.revision,
+			next: work({ description: 'Zero', directClientId: client.id, rateOverrideOrePerHour: '0' }),
+		})).json());
+		now = '2026-10-24T21:36:00.000Z';
+		const zeroEntry = (await stopped(zeroTimer)).entry;
+		const zero = await continuation(zeroEntry.id);
+		const keptZero = await started(zero.request);
+		expect(keptZero.timer).toMatchObject({ billable: true, assignedRateOrePerHour: '0' });
+		await stopped(keptZero.timer);
+		await database.client.update({ where: { id: client.id }, data: { defaultRateOrePerHour: null } });
+		const current = await continuation(zeroEntry.id, 'current');
+		const key = randomUUID();
+		const pickedNull = await started(current.request, key);
+		expect(pickedNull.timer).toMatchObject({ billable: true, assignedRateOrePerHour: null });
+		await database.client.update({ where: { id: client.id }, data: { archivedAt: new Date(now) } });
+		expect((await start(current.request, key)).json()).toEqual(pickedNull);
+		expect((await app.inject({ url: `${entriesPath}/${zeroEntry.id}/continue`, ...session })).json()).toMatchObject({ code: 'INVALID_CLIENT' });
+		expect((await post(timerSwitchPath, { timerId: pickedNull.timer.id, revision: 1, next: current.request })).json()).toMatchObject({ code: 'INVALID_CLIENT' });
+		expect(parseTimerStateResponse((await app.inject({ url: timerPath, ...session })).json()).timer?.id).toBe(pickedNull.timer.id);
 	});
 });

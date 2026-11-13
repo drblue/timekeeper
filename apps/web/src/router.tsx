@@ -80,9 +80,11 @@ function Layout() {
 				</div>
 			</header>
 			<main className="shell main-content">
-				{session.data?.account ? <WorkspaceTimer key={session.data.account.email} account={session.data.account.email}
-					sessionUnavailable={session.isError} /> : null}
-				{content}
+				{session.data?.account ? (
+					<WorkspaceTimer key={session.data.account.email} account={session.data.account.email} sessionUnavailable={session.isError}>
+						{content}
+					</WorkspaceTimer>
+				) : content}
 			</main>
 		</SessionContext>
 	);

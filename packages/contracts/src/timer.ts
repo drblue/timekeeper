@@ -7,6 +7,7 @@ import { NullableHourlyRate, NullableUuid, Revision, Uuid } from './primitives.j
 export const timerPath = '/api/v1/timer';
 export const timerStartPath = `${timerPath}/start`;
 export const timerStopPath = `${timerPath}/stop`;
+export const timerSwitchPath = `${timerPath}/switch`;
 export const idempotencyKeyHeader = 'idempotency-key';
 export const longRunningTimerSeconds = 43_200;
 
@@ -21,10 +22,16 @@ export const StartTimerBody = Type.Object({
 	billable: Type.Optional(Type.Boolean()),
 }, strict);
 export const StopTimerBody = Type.Object({ timerId: Uuid, revision: Revision }, strict);
-export const RunningTimerResponse = Type.Object({
-	id: Uuid,
-	revision: Revision,
-	startAt: EntryInstant,
+export const ContinueTimerBody = Type.Object({
+	entryId: Uuid,
+	entryRevision: Revision,
+	rateChoice: Type.Union([Type.Literal('saved'), Type.Literal('current')]),
+	expectedDefaultRateOrePerHour: NullableHourlyRate,
+}, strict);
+export const StartTimerRequest = Type.Union([StartTimerBody, ContinueTimerBody]);
+export const SwitchTimerBody = Type.Object({ ...StopTimerBody.properties, next: StartTimerRequest }, strict);
+
+const workResponseFields = {
 	description: Type.String(),
 	projectId: NullableUuid,
 	directClientId: NullableUuid,
@@ -33,6 +40,18 @@ export const RunningTimerResponse = Type.Object({
 	clientName: Type.Union([Type.String(), Type.Null()]),
 	billable: Type.Boolean(),
 	assignedRateOrePerHour: NullableHourlyRate,
+};
+export const ContinueEntryPreview = Type.Object({
+	entryId: Uuid,
+	revision: Revision,
+	...workResponseFields,
+	currentDefaultRateOrePerHour: NullableHourlyRate,
+}, strict);
+export const RunningTimerResponse = Type.Object({
+	id: Uuid,
+	revision: Revision,
+	startAt: EntryInstant,
+	...workResponseFields,
 }, strict);
 export const TimerStateResponse = Type.Object({
 	timer: Type.Union([RunningTimerResponse, Type.Null()]),
@@ -42,10 +61,16 @@ export const StopTimerResponse = Type.Object({
 	entry: Type.Union([TimedEntryResponse, IncompleteEntryResponse]),
 	serverNow: ServerNow,
 }, strict);
+export const SwitchTimerResponse = Type.Object({ ...StopTimerResponse.properties, timer: RunningTimerResponse }, strict);
 
 export type TimerIdempotencyHeaders = Static<typeof TimerIdempotencyHeaders>;
 export type StartTimerBody = Static<typeof StartTimerBody>;
 export type StopTimerBody = Static<typeof StopTimerBody>;
+export type ContinueTimerBody = Static<typeof ContinueTimerBody>;
+export type ContinueEntryPreview = Static<typeof ContinueEntryPreview>;
+export type StartTimerRequest = Static<typeof StartTimerRequest>;
+export type SwitchTimerBody = Static<typeof SwitchTimerBody>;
+export type SwitchTimerResponse = Static<typeof SwitchTimerResponse>;
 export type RunningTimerResponse = Static<typeof RunningTimerResponse>;
 export type TimerStateResponse = Static<typeof TimerStateResponse>;
 export type StopTimerResponse = Static<typeof StopTimerResponse>;
@@ -57,5 +82,15 @@ export function parseTimerStateResponse(value: unknown): TimerStateResponse {
 
 export function parseStopTimerResponse(value: unknown): StopTimerResponse {
 	if (!Value.Check(StopTimerResponse, value)) throw new Error('Invalid timer stop response');
+	return value;
+}
+
+export function parseContinueEntryPreview(value: unknown): ContinueEntryPreview {
+	if (!Value.Check(ContinueEntryPreview, value)) throw new Error('Invalid continue entry preview');
+	return value;
+}
+
+export function parseSwitchTimerResponse(value: unknown): SwitchTimerResponse {
+	if (!Value.Check(SwitchTimerResponse, value)) throw new Error('Invalid timer switch response');
 	return value;
 }

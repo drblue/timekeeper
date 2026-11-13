@@ -2,10 +2,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getRouteApi, Link } from '@tanstack/react-router';
 import { entriesPath, formatStockholmLocalTime, parseEntryListResponse, parseEntryResponse } from '@timekeeper/contracts';
 import type { EntryResponse } from '@timekeeper/contracts';
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ApiRequestError, readApi } from './api';
 import { useSession } from './auth';
 import { EntryCompletion } from './entry-completion';
+import { EntryContinue } from './entry-continue';
 import { entriesKey } from './entry-query';
 import { displayClock } from './entry-time';
 import { EntryEditor } from './entry-editor';
@@ -110,6 +111,8 @@ export function EntryDetail() {
 	const { refresh } = useSession();
 	const queryClient = useQueryClient();
 	const [completedId, setCompletedId] = useState<string | null>(null);
+	const heading = useRef<HTMLHeadingElement>(null);
+	const focusHeading = useCallback(() => heading.current?.focus(), []);
 	const entry = useQuery({
 		queryKey: [...entriesKey, entryId],
 		queryFn: ({ signal }) => readApi(`${entriesPath}/${encodeURIComponent(entryId)}`, parseEntryResponse, signal, refresh),
@@ -128,7 +131,7 @@ export function EntryDetail() {
 	return (
 		<section className="entry-page" aria-labelledby="entry-heading">
 			<div><Link to="/entries">Back to time entries</Link></div>
-			<h1 className="entry-heading" id="entry-heading">{data?.description || (data ? 'Untitled time entry' : 'Time entry')}</h1>
+			<h1 className="entry-heading" id="entry-heading" ref={heading} tabIndex={-1}>{data?.description || (data ? 'Untitled time entry' : 'Time entry')}</h1>
 			{completedId === entryId ? <p className="feedback" role="status">Time entry completed.</p> : null}
 			{entry.isError ? (
 				<div className="feedback error catalog-load-error">
@@ -172,6 +175,7 @@ export function EntryDetail() {
 							</div>
 						) : null}
 					</dl>
+					<EntryContinue key={entryId} entryId={entryId} onFallbackFocus={focusHeading} />
 					{data.completion === 'incomplete' ? <EntryCompletion key={entryId} entry={data} onSaved={completed}
 						onRefresh={() => void entry.refetch()} /> : null}
 				</>
