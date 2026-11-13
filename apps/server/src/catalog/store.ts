@@ -205,6 +205,10 @@ export function createCatalogStore(database: PrismaClient) {
 					if (entry) {
 						throw new ApiRequestError(409, 'PROJECT_CLIENT_LOCKED', 'The client cannot change after work has been recorded for this project.', 'clientId');
 					}
+					const timer = await transaction.runningTimer.findUnique({ where: { accountId, projectId: id }, select: { id: true } });
+					if (timer) {
+						throw new ApiRequestError(409, 'PROJECT_CLIENT_LOCKED', 'The client cannot change while a timer is running for this project.', 'clientId');
+					}
 					await requireActiveClient(transaction, accountId, clientId);
 				}
 				if (!input.confirmDuplicate && (changedClient || nameKey(current.name) !== nameKey(text.name))) {

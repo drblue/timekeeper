@@ -7,6 +7,8 @@ import { Entries, EntryDetail } from './entries';
 import { Home } from './home';
 import { Login } from './login';
 import { Password } from './password';
+import { writeTimerOperation } from './timer-operation';
+import { WorkspaceTimer } from './workspace-timer';
 
 function SignOut() {
 	const { session, refresh } = useSession();
@@ -20,6 +22,7 @@ function SignOut() {
 		try {
 			const response = await postAuth(authLogoutPath, session.csrfToken);
 			if (response.ok) {
+				if (session.account) writeTimerOperation(session.account.email, null);
 				await replaceSession(undefined);
 			} else {
 				setError(await authError(response, refresh));
@@ -76,7 +79,11 @@ function Layout() {
 					) : null}
 				</div>
 			</header>
-			<main className="shell main-content">{content}</main>
+			<main className="shell main-content">
+				{session.data?.account ? <WorkspaceTimer key={session.data.account.email} account={session.data.account.email}
+					sessionUnavailable={session.isError} /> : null}
+				{content}
+			</main>
 		</SessionContext>
 	);
 }

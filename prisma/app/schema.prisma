@@ -20,6 +20,8 @@ model Account {
   clients      Client[]
   projects     Project[]
   entries      Entry[]
+  runningTimer RunningTimer?
+  operationReceipts OperationReceipt[]
 }
 
 model Session {
@@ -44,6 +46,7 @@ model Client {
 	revision              Int       @default(1)
 	projects              Project[]
 	entries               Entry[]
+	timers                RunningTimer[]
 
 	@@unique([accountId, id])
 	@@index([accountId, archivedAt])
@@ -62,6 +65,7 @@ model Project {
 	archivedAt             DateTime?
 	revision               Int       @default(1)
 	entries                Entry[]
+	timers                 RunningTimer[]
 
 	@@unique([accountId, id])
 	@@index([accountId, archivedAt])
@@ -84,10 +88,12 @@ model Entry {
 	directClient           Client?              @relation(fields: [accountId, directClientId], references: [accountId, id], onDelete: Restrict)
 	billable               Boolean
 	assignedRateOrePerHour BigInt?
-	billableAmountOre      BigInt
+	billableAmountOre      BigInt?
+	completion             String               @default("complete")
 	revision               Int                  @default(1)
 	createdAt              DateTime             @default(now())
 	allocations            EntryDayAllocation[]
+	history                EntryHistory[]
 
 	@@index([accountId, localDate, createdAt])
 	@@index([accountId, projectId])
@@ -104,4 +110,43 @@ model EntryDayAllocation {
 	calculationVersion Int
 
 	@@id([entryId, localDate])
+}
+
+model RunningTimer {
+	accountId              String    @id
+	account                Account   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+	id                     String    @unique
+	startAt                DateTime
+	description            String
+	projectId              String?
+	project                Project?  @relation(fields: [accountId, projectId], references: [accountId, id], onDelete: Restrict)
+	directClientId         String?
+	directClient           Client?   @relation(fields: [accountId, directClientId], references: [accountId, id], onDelete: Restrict)
+	billable               Boolean
+	assignedRateOrePerHour BigInt?
+	revision               Int       @default(1)
+}
+
+model OperationReceipt {
+	accountId      String
+	account        Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+	key            String
+	requestHash    String
+	resultSnapshot String
+	completedAt    DateTime
+
+	@@id([accountId, key])
+}
+
+model EntryHistory {
+	id             String    @id
+	entryId        String
+	entry          Entry     @relation(fields: [entryId], references: [id], onDelete: Restrict)
+	action         String
+	at             DateTime
+	beforeSnapshot String?
+	afterSnapshot  String
+	operationKey   String?
+
+	@@index([entryId, at])
 }

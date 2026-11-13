@@ -32,11 +32,15 @@ export async function readApi<T>(
 	return parse(await response.json());
 }
 
-export async function writeApi(path: string, method: 'POST' | 'PUT', csrfToken: string, body: object) {
+export async function writeApi(
+	path: string, method: 'POST' | 'PUT', csrfToken: string, body: object,
+	options?: { headers?: Record<string, string>; signal?: AbortSignal },
+) {
 	const response = await fetch(path, {
 		method,
 		cache: 'no-store',
-		headers: { 'Content-Type': 'application/json', [csrfHeader]: csrfToken },
+		headers: { ...options?.headers, 'Content-Type': 'application/json', [csrfHeader]: csrfToken },
+		signal: options?.signal,
 		body: JSON.stringify(body),
 	});
 	if (!response.ok) {

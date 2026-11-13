@@ -1,16 +1,20 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 import {
 	authSessionPath,
 	clientsPath,
 	csrfHeader,
 	entriesPath,
+	idempotencyKeyHeader,
 	parseAuthSessionResponse,
 	parseClientResponse,
 	parseEntryListResponse,
 	parseEntryResponse,
 	parseProjectResponse,
+	parseTimerStateResponse,
 	projectsPath,
+	timerPath,
+	timerStopPath,
 } from '@timekeeper/contracts';
 
 test.use({ timezoneId: 'America/Los_Angeles' });
@@ -305,4 +309,138 @@ test('requires a repeated-time occurrence and allows explicit overlap confirmati
 	await save.click();
 	await page.getByRole('button', { name: 'Save overlapping entry' }).click();
 	await expect(page.getByRole('link', { name: 'Revised overlapping clock change work', exact: true })).toBeVisible();
+});
+
+test('reconciles an unconfirmed stop across two tabs and completes the saved entry', async ({ page, context }) => {
+	await page.goto('/login');
+	await page.getByLabel('Email address').fill('operator@example.test');
+	await page.getByLabel('Password', { exact: true }).fill('Browser test initial password');
+	await page.getByRole('button', { name: 'Sign in' }).click();
+	await page.getByRole('link', { name: 'Entries', exact: true }).click();
+
+	const second = await context.newPage();
+	await second.goto('/entries');
+	const otherTimer = second.getByRole('region', { name: 'Timer', exact: true });
+	await expect(otherTimer.getByText('No timer running')).toBeVisible();
+	await page.bringToFront();
+
+	const timer = page.getByRole('region', { name: 'Timer', exact: true });
+	await timer.getByRole('button', { name: 'Add details' }).click();
+	await timer.getByLabel('Billability').selectOption('billable');
+	await timer.getByRole('button', { name: 'Start with details' }).click();
+	const stop = timer.getByRole('button', { name: 'Stop timer' });
+	await expect(stop).toBeEnabled();
+	const elapsed = timer.getByRole('timer', { name: 'Elapsed time' });
+	await expect(elapsed).not.toHaveText('00:00:00');
+	await second.bringToFront();
+	await expect(otherTimer.getByRole('button', { name: 'Stop timer' })).toBeEnabled({ timeout: 15_000 });
+	await page.bringToFront();
+
+	let originalKey: string | undefined;
+	const dropStopResponse = async (route: Route) => {
+		originalKey = route.request().headers()[idempotencyKeyHeader];
+		const response = await route.fetch();
+		expect(response.status()).toBe(200);
+		await route.abort('failed');
+	};
+	await page.route('**' + timerStopPath, dropStopResponse);
+	await stop.click();
+	await expect(timer.getByRole('alert')).toHaveText(/Could not confirm the timer stop/);
+	await expect(timer.getByRole('link', { name: 'Complete time entry' })).toHaveCount(0);
+	expect(originalKey).toBeTruthy();
+	await page.unroute('**' + timerStopPath, dropStopResponse);
+	await page.reload();
+	const retried = page.waitForRequest((request) => new URL(request.url()).pathname === timerStopPath);
+	await timer.getByRole('button', { name: 'Retry stop' }).click();
+	expect((await retried).headers()[idempotencyKeyHeader]).toBe(originalKey);
+	await expect(timer.getByText('Time saved as incomplete.')).toBeVisible();
+	await expect(timer.getByRole('button', { name: 'Start timer' })).toBeEnabled();
+	await second.bringToFront();
+	await expect(otherTimer.getByText('No timer running')).toBeVisible({ timeout: 15_000 });
+	const entriesBefore = parseEntryListResponse(await (await second.request.get(entriesPath)).json());
+	const incomplete = entriesBefore.filter((entry) => entry.completion === 'incomplete');
+	expect(incomplete).toHaveLength(1);
+	expect(incomplete[0]).toMatchObject({ billableAmountOre: null, missingFields: ['description', 'rate'] });
+	await second.close();
+
+	const savedEntry = incomplete[0];
+	if (!savedEntry) throw new Error('Expected an incomplete entry');
+	const entryRoute = '**' + entriesPath + '/' + savedEntry.id;
+	await page.route(entryRoute, (route) => route.fulfill({
+		json: { ...savedEntry, endAt: savedEntry.startAt, durationSeconds: 0, missingFields: ['description', 'rate', 'duration'] },
+	}));
+	await timer.getByRole('link', { name: 'Complete time entry' }).click();
+	await expect(page.getByText('Incomplete · Excluded from report totals.')).toBeVisible();
+	const saveCompleted = page.getByRole('button', { name: 'Save completed entry' });
+	await page.getByLabel('Description', { exact: true }).fill('Recovered tracked work');
+	await saveCompleted.click();
+	const duration = page.getByLabel('Duration', { exact: true });
+	await expect(duration).toBeFocused();
+	await expect(duration).toBeInViewport();
+	await expect(duration).toHaveAccessibleDescription(/Enter a duration/);
+	await page.unroute(entryRoute);
+	await page.reload();
+	await page.getByLabel('Description', { exact: true }).fill('Recovered tracked work');
+	const rate = page.getByLabel('Hourly rate (SEK)', { exact: true });
+	await rate.fill('99.999');
+	const billability = page.getByLabel('Billability', { exact: true });
+	await billability.selectOption('non-billable');
+	await expect(rate).toHaveCount(0);
+	await billability.selectOption('billable');
+	await expect(rate).toHaveValue('99.999');
+	await billability.selectOption('non-billable');
+	await saveCompleted.click();
+	await expect(page.getByText('Time entry completed.')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Recovered tracked work' })).toBeVisible();
+	const entriesAfter = parseEntryListResponse(await (await page.request.get(entriesPath)).json());
+	expect(entriesAfter.find((entry) => entry.id === savedEntry.id)).toMatchObject({
+		completion: 'complete', billable: false, assignedRateOrePerHour: null, billableAmountOre: '0',
+	});
+});
+
+test('keeps confirmed elapsed time visible during disconnection and distinguishes unknown status', async ({ page, context }) => {
+	await page.goto('/login');
+	await page.getByLabel('Email address').fill('operator@example.test');
+	await page.getByLabel('Password', { exact: true }).fill('Browser test initial password');
+	await page.getByRole('button', { name: 'Sign in' }).click();
+	await page.getByRole('link', { name: 'Entries', exact: true }).click();
+	const timer = page.getByRole('region', { name: 'Timer', exact: true });
+	await timer.getByRole('button', { name: 'Start timer' }).click();
+	await expect(timer.getByRole('button', { name: 'Stop timer' })).toBeEnabled();
+	const serverState = parseTimerStateResponse(await (await page.request.get(timerPath)).json());
+	if (!serverState.timer) throw new Error('Expected a confirmed running timer');
+	await context.setOffline(true);
+	await expect(timer.getByText(/Elapsed time is estimated from the last update/)).toBeVisible();
+	await expect(timer.getByRole('button', { name: 'Stop timer' })).toBeDisabled();
+	const elapsed = timer.getByRole('timer', { name: 'Elapsed time' });
+	const initial = await elapsed.textContent();
+	await expect(elapsed).not.toHaveText(initial ?? '');
+	await context.setOffline(false);
+	await expect(timer.getByRole('button', { name: 'Stop timer' })).toBeEnabled();
+	expect(parseTimerStateResponse(await (await page.request.get(timerPath)).json()).timer?.id).toBe(serverState.timer.id);
+	await timer.getByRole('button', { name: 'Stop timer' }).click();
+	await expect(timer.getByText('Time saved as incomplete.')).toBeVisible();
+
+	const unknown = await context.newPage();
+	await unknown.route('**' + timerPath, (route) => route.abort('failed'));
+	await unknown.goto('/entries');
+	const unknownTimer = unknown.getByRole('region', { name: 'Timer', exact: true });
+	await expect(unknownTimer.getByText('Timer status unavailable.', { exact: true })).toBeVisible();
+	await expect(unknownTimer.getByText('No timer running')).toHaveCount(0);
+	await expect(unknownTimer.getByRole('button', { name: 'Start timer' })).toBeDisabled();
+	await unknown.unroute('**' + timerPath);
+	await unknownTimer.getByRole('button', { name: 'Check timer status' }).click();
+	await expect(unknownTimer.getByText('No timer running')).toBeVisible();
+
+	const longRunning = {
+		...serverState,
+		serverNow: new Date(Date.parse(serverState.timer.startAt) + 12 * 3_600_000).toISOString(),
+	};
+	await unknown.route('**' + timerPath, (route) => route.fulfill({ json: longRunning }));
+	await unknown.clock.setFixedTime(new Date('2001-01-01T00:00:00Z'));
+	await unknown.reload();
+	await expect(unknownTimer.getByText('This timer has been running for at least 12 hours.')).toBeVisible();
+	await expect(unknownTimer.getByRole('timer')).toHaveText(/^12:00:/);
+	await expect(unknownTimer.getByRole('button', { name: 'Stop timer' })).toBeEnabled();
+	await unknown.close();
 });

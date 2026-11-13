@@ -1,11 +1,13 @@
 import {
 	ApiErrorResponse,
+	CompleteEntryBody,
 	CreateEntryBody,
 	EntryListResponse,
 	EntryResponse,
 	entriesPath,
 	EntryIdParams,
 	EntryListQuery,
+	TimedEntryResponse,
 } from '@timekeeper/contracts';
 import type { FastifyInstance } from 'fastify';
 import type { EntryStore } from './store.ts';
@@ -41,4 +43,13 @@ export function registerEntries(app: FastifyInstance, store: EntryStore) {
 		const entry = await store.createEntry(request.accountSession!.accountId, request.body);
 		return reply.code(201).send(entry);
 	});
+
+	app.post<{ Params: EntryIdParams; Body: CompleteEntryBody }>(`${entriesPath}/:id/complete`, {
+		bodyLimit: 32_768,
+		schema: {
+			operationId: 'completeEntry', params: EntryIdParams, body: CompleteEntryBody,
+			response: { 200: TimedEntryResponse, ...readErrors, 403: ApiErrorResponse, 404: ApiErrorResponse,
+				409: ApiErrorResponse, 413: ApiErrorResponse, 422: ApiErrorResponse },
+		},
+	}, (request) => store.completeEntry(request.accountSession!.accountId, request.params.id, request.body));
 }

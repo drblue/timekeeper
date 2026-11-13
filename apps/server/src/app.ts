@@ -16,6 +16,8 @@ import { registerCatalog } from './catalog/routes.ts';
 import type { CatalogStore } from './catalog/store.ts';
 import { registerEntries } from './entries/routes.ts';
 import type { EntryStore } from './entries/store.ts';
+import { registerTimer } from './timer/routes.ts';
+import type { TimerStore } from './timer/store.ts';
 
 interface AppOptions {
 	webRoot?: string;
@@ -23,9 +25,10 @@ interface AppOptions {
 	auth?: AuthOptions;
 	catalog?: CatalogStore;
 	entries?: EntryStore;
+	timer?: TimerStore;
 }
 
-export async function createApp({ webRoot, logger = false, auth, catalog, entries }: AppOptions = {}) {
+export async function createApp({ webRoot, logger = false, auth, catalog, entries, timer }: AppOptions = {}) {
 	if (webRoot) {
 		await access(resolve(webRoot, 'index.html'));
 	}
@@ -142,6 +145,9 @@ export async function createApp({ webRoot, logger = false, auth, catalog, entrie
 	}
 	if (entries) {
 		registerEntries(app, entries);
+	}
+	if (timer) {
+		registerTimer(app, timer);
 	}
 
 	app.get<{ Reply: HealthResponse | ApiErrorResponse }>(healthPath, {

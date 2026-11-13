@@ -141,6 +141,7 @@ describe('Manual entries', () => {
 		const entry = await createEntry();
 		expect(entry).toEqual({
 			id: expect.any(String), kind: 'duration-only', description: 'Reviewed project notes',
+			completion: 'complete',
 			localDate: '2026-10-25', durationSeconds: 5_400, projectId: null, directClientId: null,
 			clientId: null, projectName: null, clientName: null, billable: false,
 			assignedRateOrePerHour: null, billableAmountOre: '0', revision: 1,

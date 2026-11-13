@@ -6,6 +6,7 @@ import { openDatabase } from './auth/database.ts';
 import { createAuthStore } from './auth/store.ts';
 import { createCatalogStore } from './catalog/store.ts';
 import { createEntryStore } from './entries/store.ts';
+import { createTimerStore } from './timer/store.ts';
 
 const host = process.env.HOST ?? '127.0.0.1';
 const port = Number(process.env.PORT ?? '3000');
@@ -30,6 +31,7 @@ try {
 		auth: { config, store },
 		catalog: createCatalogStore(database),
 		entries: createEntryStore(database),
+		timer: createTimerStore(database),
 	});
 	app.addHook('onClose', async () => { await database.$disconnect(); });
 } catch {

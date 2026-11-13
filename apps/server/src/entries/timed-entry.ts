@@ -22,11 +22,11 @@ function resolveInstant(local: string, occurrence: LocalTimeOccurrence | undefin
 	}
 }
 
-export function timedInterval(startAt: Date, endAt: Date) {
+export function timedInterval(startAt: Date, endAt: Date, allowEmpty = false) {
 	const startMillis = startAt.getTime();
 	const endMillis = endAt.getTime();
 	const durationSeconds = (endMillis - startMillis) / 1_000;
-	if (durationSeconds <= 0) {
+	if (durationSeconds < 0 || (durationSeconds === 0 && !allowEmpty)) {
 		throw new ApiRequestError(422, 'INVALID_TIME_RANGE', 'End time must be after start time.', 'endLocal');
 	}
 	if (!Number.isInteger(startMillis / 1_000) || !Number.isInteger(endMillis / 1_000) || durationSeconds > maxEntryDurationSeconds) {
