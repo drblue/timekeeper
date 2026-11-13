@@ -15,6 +15,9 @@ const historyActionLabels = {
 	edited: 'Edited',
 	deleted: 'Moved to Trash',
 	restored: 'Restored',
+	'invoice-marked': 'Marked as invoiced',
+	'invoice-unmarked': 'Unmarked invoice',
+	'invoice-metadata-updated': 'Updated invoice details',
 } as const;
 
 interface HistoryValue {
@@ -38,6 +41,11 @@ function values(entry: EntryResponse): HistoryValue[] {
 		{ label: 'Billable amount', value: entry.billableAmountOre === null ? 'Incomplete' : formatSek(entry.billableAmountOre) },
 		{ label: 'Status', value: entry.completion === 'complete' ? 'Complete' : 'Incomplete' },
 		{ label: 'Location', value: entry.deletedAt ? 'Trash' : 'Time entries' },
+		{ label: 'Invoice status', value: entry.invoicedAt ? 'Invoiced' : 'Unmarked' },
+		{ label: 'Invoice number', value: entry.invoiceNumber ?? '—' },
+		{ label: 'Invoice date', value: entry.invoiceDate ?? '—' },
+		{ label: 'Invoice reference', value: entry.invoiceReference ?? '—' },
+		{ label: 'Marked as invoiced', value: entry.invoicedAt ? stockholmTimeLabel(entry.invoicedAt) : '—' },
 	];
 }
 

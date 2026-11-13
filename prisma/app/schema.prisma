@@ -92,6 +92,8 @@ model Entry {
 	completion             String               @default("complete")
 	invoicedAt             DateTime?
 	invoiceNumber          String?
+	invoiceDate            String?
+	invoiceReference       String?
 	deletedAt              DateTime?
 	revision               Int                  @default(1)
 	createdAt              DateTime             @default(now())

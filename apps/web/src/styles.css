@@ -870,3 +870,48 @@ button:disabled {
 	flex-wrap: wrap;
 	gap: 0.75rem 1rem;
 }
+
+.entry-invoice {
+	display: grid;
+	gap: 0.85rem;
+}
+
+.entry-invoice h2,
+.entry-invoice h3,
+.entry-invoice-values {
+	margin: 0;
+}
+
+.entry-invoice-values,
+.entry-invoice-fields {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.75rem 1rem;
+	overflow-wrap: anywhere;
+}
+
+.entry-invoice-values dt {
+	font-weight: 650;
+}
+
+.entry-invoice-values dd {
+	margin: 0.2rem 0 0;
+	color: var(--muted);
+}
+
+.entry-invoice-reference {
+	grid-column: 1 / -1;
+	white-space: pre-wrap;
+}
+
+.entry-invoice-form {
+	border-block-start: 1px solid var(--border);
+	padding-block-start: 0.85rem;
+}
+
+@media (max-width: 36rem) {
+	.entry-invoice-values,
+	.entry-invoice-fields {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}

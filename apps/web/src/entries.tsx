@@ -6,6 +6,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { ApiRequestError, readApi } from './api';
 import { useSession } from './auth';
 import { EntryCompletion } from './entry-completion';
+import { EntryInvoice } from './entry-invoice';
 import { EntryDelete } from './entry-delete';
 import { EntryContinue } from './entry-continue';
 import { entriesKey } from './entry-query';
@@ -57,7 +58,9 @@ function EntrySummary({ entry, seconds, amountOre, day, search, range, onOpen }:
 					{entry.description || 'Untitled time entry'}
 				</Link></h3>
 				{association ? <p>{association}</p> : null}
-				{entry.invoicedAt ? <p className="field-hint">Invoiced{entry.invoiceNumber ? ' · ' + entry.invoiceNumber : ''}</p> : null}
+				<p className="field-hint">{entry.invoicedAt
+					? 'Invoiced' + (entry.invoiceNumber ? ' · ' + entry.invoiceNumber : '')
+					: !entry.billable ? 'Non-billable' : entry.completion === 'complete' ? 'Not yet invoiced' : 'Billable'}</p>
 				{entry.kind === 'timed' ? (
 					<p className="field-hint">
 						{portion ? 'Part of timed entry · ' : ''}
@@ -249,6 +252,11 @@ export function EntryDetail() {
 		void queryClient.invalidateQueries({ queryKey: entriesKey });
 	}
 
+	async function refreshEntry() {
+		const latest = await entry.refetch();
+		return latest.isSuccess ? latest.data : undefined;
+	}
+
 	function deleted() {
 		void queryClient.invalidateQueries({ queryKey: entriesKey, refetchType: 'none' });
 		void navigate({
@@ -323,12 +331,12 @@ export function EntryDetail() {
 							{data.completion === 'incomplete' && !data.invoicedAt ? <EntryCompletion key={'completion:' + entryId} entry={data}
 								onSaved={(saved) => savedEntry(saved, 'Time entry completed.')} onRefresh={() => void entry.refetch()} /> : null}
 							{!data.invoicedAt ? <EntryDelete key={'delete:' + entryId} entry={data} onDeleted={deleted}
-								onRefresh={async () => {
-									const latest = await entry.refetch();
-									return latest.isSuccess ? latest.data : undefined;
-								}} /> : null}
+								onRefresh={refreshEntry} /> : null}
 						</>
 					)}
+					{editingEntry?.id !== entryId ? (
+						<EntryInvoice key={'invoice:' + entryId} entry={data} onSaved={savedEntry} onRefresh={refreshEntry} />
+					) : null}
 					<EntryHistory key={'history:' + entryId} entryId={entryId} />
 				</>
 			) : entry.isPending ? <p role="status">Loading time entry…</p> : null}

@@ -354,6 +354,9 @@ describe('Manual entries', () => {
 			request('PUT', `${entriesPath}/${ownedEntry.id}`, change(ownedEntry)),
 			request('POST', `${entriesPath}/${ownedEntry.id}/delete`, { revision: ownedEntry.revision }),
 			request('POST', `${entriesPath}/${ownedEntry.id}/restore`, { revision: ownedEntry.revision }),
+			request('POST', `${entriesPath}/${ownedEntry.id}/invoice`, { revision: ownedEntry.revision }),
+			request('PUT', `${entriesPath}/${ownedEntry.id}/invoice`, { revision: ownedEntry.revision }),
+			request('POST', `${entriesPath}/${ownedEntry.id}/uninvoice`, { revision: ownedEntry.revision }),
 		]) expect((await attempted).statusCode).toBe(404);
 		expect((await request('POST', entriesPath, work({ projectId: ownedProject.id }))).json()).toMatchObject({ code: 'INVALID_PROJECT' });
 		expect((await request('POST', entriesPath, work({ directClientId: ownedClient.id }))).json()).toMatchObject({ code: 'INVALID_CLIENT' });
@@ -730,5 +733,85 @@ describe('Manual entries', () => {
 		expect(restores.find(({ statusCode }) => statusCode === 409)?.json()).toMatchObject({ code: 'REVISION_CONFLICT' });
 		expect((await request('POST', `${url}/restore`, { revision: 3 })).json()).toMatchObject({ code: 'ENTRY_NOT_DELETED' });
 		expect(await database.entryHistory.count({ where: { entryId: entry.id } })).toBe(3);
+	});
+
+	it('marks individual work with shared textual invoice numbers and corrects only metadata', async () => {
+		const first = await createTimedEntry({ startLocal: '2026-11-16T23:30', endLocal: '2026-11-17T00:30', billable: true, rateOverrideOrePerHour: '1' });
+		const second = await createEntry({ localDate: '2026-11-16', billable: true, rateOverrideOrePerHour: '0' });
+		const firstUrl = `${entriesPath}/${first.id}`;
+		const oldAllocations = await database.entryDayAllocation.findMany({ where: { entryId: first.id }, orderBy: { localDate: 'asc' } });
+		const metadata = { invoiceNumber: '  SE-00017  ', invoiceDate: '2026-10-31', invoiceReference: '  Project note  ' };
+		for (const entry of [first, second]) {
+			const marked = await request('POST', `${entriesPath}/${entry.id}/invoice`, { ...metadata, revision: 1 });
+			expect(marked.statusCode).toBe(200);
+			expect(parseEntryResponse(marked.json())).toEqual({ ...entry, revision: 2, invoicedAt: now,
+				invoiceNumber: 'SE-00017', invoiceDate: '2026-10-31', invoiceReference: 'Project note' });
+		}
+		const markTime = now;
+		expect((await readWork({ invoice: 'invoiced', invoiceNumber: 'se-00017' })).totalRows).toBe(3);
+		expect((await request('POST', `${firstUrl}/invoice`, { ...metadata, revision: 2 })).json()).toMatchObject({ code: 'ENTRY_ALREADY_INVOICED' });
+		expect((await request('PUT', firstUrl, change(first, { revision: 2, description: 'Locked work' }))).json()).toMatchObject({ code: 'ENTRY_INVOICED' });
+		expect((await request('POST', `${firstUrl}/delete`, { revision: 2 })).json()).toMatchObject({ code: 'ENTRY_INVOICED' });
+		now = '2026-11-16T12:00:00.000Z';
+		const correctedResponse = await request('PUT', `${firstUrl}/invoice`, { revision: 2, invoiceNumber: 'SE-00018', invoiceDate: '2026-10-30', invoiceReference: '' });
+		expect(correctedResponse.statusCode).toBe(200);
+		const corrected = parseEntryResponse(correctedResponse.json());
+		expect(corrected).toEqual({ ...first, revision: 3, invoicedAt: markTime, invoiceNumber: 'SE-00018', invoiceDate: '2026-10-30' });
+		expect(await database.entryDayAllocation.findMany({ where: { entryId: first.id }, orderBy: { localDate: 'asc' } })).toEqual(oldAllocations);
+		expect((await readWork({ invoiceNumber: 'SE-00018' })).totalRows).toBe(2);
+		const noOp = await request('PUT', `${firstUrl}/invoice`, { revision: 3, invoiceNumber: 'SE-00018', invoiceDate: '2026-10-30' });
+		expect(parseEntryResponse(noOp.json())).toEqual(corrected);
+		expect((await request('POST', `${firstUrl}/uninvoice`, { revision: 2 })).json()).toMatchObject({ code: 'REVISION_CONFLICT' });
+		const unmarked = await request('POST', `${firstUrl}/uninvoice`, { revision: 3 });
+		expect(parseEntryResponse(unmarked.json())).toEqual({ ...first, revision: 4 });
+		expect((await readWork({ invoice: 'not-yet-invoiced' })).totalRows).toBe(2);
+		expect((await readWork({ invoiceNumber: 'SE-00018' })).totalRows).toBe(0);
+		const history = parseEntryHistoryResponse((await request('GET', `${firstUrl}/history`)).json());
+		expect(history).toHaveLength(4);
+		expect(history.find(({ action }) => action === 'invoice-marked')).toMatchObject({ before: first, after: { invoicedAt: markTime, invoiceNumber: 'SE-00017' } });
+		expect(history.find(({ action }) => action === 'invoice-metadata-updated')).toMatchObject({ before: { invoiceNumber: 'SE-00017' }, after: corrected });
+		expect(history.find(({ action }) => action === 'invoice-unmarked')).toMatchObject({ before: corrected, after: { ...first, revision: 4 } });
+		expect((await request('PUT', firstUrl, change(first, { revision: 4, description: 'Unlocked work' }))).statusCode).toBe(200);
+		expect((await request('POST', `${firstUrl}/delete`, { revision: 5 })).statusCode).toBe(200);
+	});
+
+	it('guards invoice eligibility, date format, ownership state and transactional history', async () => {
+		const free = await createEntry({ localDate: '2026-11-16' });
+		const billable = await createEntry({ localDate: '2026-11-16', billable: true, rateOverrideOrePerHour: '0' });
+		const incomplete = await database.entry.create({ data: {
+			id: randomUUID(), accountId, kind: 'timed', completion: 'incomplete', description: '', localDate: '2026-11-16',
+			startAt: new Date('2026-11-16T12:00:00.000Z'), endAt: new Date('2026-11-16T12:01:00.000Z'), durationSeconds: 60, billable: true,
+		} });
+		for (const entry of [free, incomplete]) {
+			const invalid = await request('POST', `${entriesPath}/${entry.id}/invoice`, { revision: 1 });
+			expect(invalid.statusCode).toBe(422);
+			expect(invalid.json()).toMatchObject({ code: 'ENTRY_NOT_INVOICE_ELIGIBLE' });
+		}
+		const incompleteUrl = `${entriesPath}/${incomplete.id}`;
+		await database.$executeRaw`UPDATE "Entry" SET "invoicedAt" = ${new Date(now).getTime()}, "invoiceNumber" = 'Imported-0001' WHERE "id" = ${incomplete.id}`;
+		const incompleteCorrection = await request('PUT', `${incompleteUrl}/invoice`, { revision: 1, invoiceNumber: 'Imported-0002' });
+		expect(incompleteCorrection.statusCode).toBe(200);
+		expect(parseEntryResponse(incompleteCorrection.json())).toMatchObject({ completion: 'incomplete', invoicedAt: now });
+		expect(await database.$queryRaw`SELECT typeof("invoicedAt") AS storage FROM "Entry" WHERE "id" = ${incomplete.id}`)
+			.toEqual([{ storage: 'integer' }]);
+		expect((await request('POST', `${incompleteUrl}/uninvoice`, { revision: 2 })).statusCode).toBe(200);
+		const url = `${entriesPath}/${billable.id}`;
+		expect((await request('PUT', `${url}/invoice`, { revision: 1 })).json()).toMatchObject({ code: 'ENTRY_NOT_INVOICED' });
+		expect((await request('POST', `${url}/uninvoice`, { revision: 1 })).json()).toMatchObject({ code: 'ENTRY_NOT_INVOICED' });
+		for (const invoiceDate of ['2025-02-29', '0000-01-01', '2026-04-31']) {
+			expect((await request('POST', `${url}/invoice`, { revision: 1, invoiceDate })).json()).toMatchObject({ code: 'INVALID_INVOICE_DATE' });
+		}
+		expect((await request('POST', `${url}/invoice`, { revision: 1, invoiceNumber: 17 })).statusCode).toBe(400);
+		await database.$executeRaw`CREATE TRIGGER "test_fail_invoice_history" BEFORE INSERT ON "EntryHistory"
+			WHEN NEW."action" = 'invoice-marked' BEGIN SELECT RAISE(ABORT, 'Test invoice history failure'); END`;
+		expect((await request('POST', `${url}/invoice`, { revision: 1 })).statusCode).toBe(500);
+		expect(parseEntryResponse((await request('GET', url)).json())).toEqual(billable);
+		await database.$executeRaw`DROP TRIGGER "test_fail_invoice_history"`;
+		const marking = await Promise.all([1, 1].map((revision) => request('POST', `${url}/invoice`, { revision, invoiceDate: '2024-02-29' })));
+		expect(marking.map(({ statusCode }) => statusCode).sort()).toEqual([200, 409]);
+		expect(marking.find(({ statusCode }) => statusCode === 409)?.json()).toMatchObject({ code: 'REVISION_CONFLICT' });
+		expect((await readWork({ invoice: 'not-yet-invoiced' })).totalRows).toBe(0);
+		expect((await request('POST', `${entriesPath}/${free.id}/delete`, { revision: 1 })).statusCode).toBe(200);
+		expect((await request('POST', `${entriesPath}/${free.id}/invoice`, { revision: 2 })).statusCode).toBe(404);
 	});
 });

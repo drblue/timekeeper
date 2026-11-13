@@ -9,6 +9,7 @@ import {
 	EntryResponse,
 	entriesPath,
 	EntryIdParams,
+	EntryInvoiceBody,
 	EntryListQuery,
 	EntryLifecycleBody,
 	EntryTrashResponse,
@@ -26,6 +27,21 @@ const readErrors = { 400: ApiErrorResponse, 401: ApiErrorResponse, 500: ApiError
 const editErrors = { ...readErrors, 403: ApiErrorResponse, 404: ApiErrorResponse, 409: ApiErrorResponse, 413: ApiErrorResponse, 422: ApiErrorResponse };
 
 export function registerEntries(app: FastifyInstance, store: EntryStore) {
+	app.post<{ Params: EntryIdParams; Body: EntryInvoiceBody }>(`${entriesPath}/:id/invoice`, {
+		bodyLimit: 32_768,
+		schema: { operationId: 'markEntryInvoiced', params: EntryIdParams, body: EntryInvoiceBody, response: { 200: EntryResponse, ...editErrors } },
+	}, (request) => store.markInvoiced(request.accountSession!.accountId, request.params.id, request.body));
+
+	app.put<{ Params: EntryIdParams; Body: EntryInvoiceBody }>(`${entriesPath}/:id/invoice`, {
+		bodyLimit: 32_768,
+		schema: { operationId: 'updateEntryInvoiceMetadata', params: EntryIdParams, body: EntryInvoiceBody, response: { 200: EntryResponse, ...editErrors } },
+	}, (request) => store.updateInvoiceMetadata(request.accountSession!.accountId, request.params.id, request.body));
+
+	app.post<{ Params: EntryIdParams; Body: EntryLifecycleBody }>(`${entriesPath}/:id/uninvoice`, {
+		bodyLimit: 1_024,
+		schema: { operationId: 'unmarkEntryInvoiced', params: EntryIdParams, body: EntryLifecycleBody, response: { 200: EntryResponse, ...editErrors } },
+	}, (request) => store.unmarkInvoiced(request.accountSession!.accountId, request.params.id, request.body.revision));
+
 	app.get(entryTrashPath, {
 		schema: { operationId: 'listEntryTrash', querystring: EntryListQuery, response: { 200: EntryTrashResponse, ...readErrors } },
 	}, (request) => store.listTrash(request.accountSession!.accountId));

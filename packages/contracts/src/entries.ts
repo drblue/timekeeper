@@ -7,6 +7,8 @@ import { entryLocalDateTimePattern } from './stockholm-time.js';
 export const entriesPath = '/api/v1/entries';
 export const maxEntryDescriptionLength = 4_000;
 export const maxEntryDurationSeconds = maxStoredInt;
+export const maxInvoiceNumberLength = 160;
+export const maxInvoiceReferenceLength = 4_000;
 
 export const EntryLocalDate = Type.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$', description: 'A local calendar date in YYYY-MM-DD form.' });
 const LocalDateTime = Type.String({ pattern: entryLocalDateTimePattern, description: 'Local date and time in Europe/Stockholm.' });
@@ -63,6 +65,8 @@ const entryOutput = {
 	revision: Revision,
 	invoicedAt: Type.Optional(Timestamp),
 	invoiceNumber: Type.Optional(Type.String()),
+	invoiceDate: Type.Optional(EntryLocalDate),
+	invoiceReference: Type.Optional(Type.String()),
 	deletedAt: Type.Optional(Timestamp),
 };
 
@@ -123,9 +127,13 @@ export const EntryEditPreview = Type.Object({
 	assignedRateOrePerHour: NullableHourlyRate,
 	overlap: Type.Boolean(),
 }, strict);
+export const EntryHistoryAction = Type.Union([
+	Type.Literal('created'), Type.Literal('completed'), Type.Literal('edited'), Type.Literal('deleted'), Type.Literal('restored'),
+	Type.Literal('invoice-marked'), Type.Literal('invoice-unmarked'), Type.Literal('invoice-metadata-updated'),
+]);
 export const EntryHistoryResponse = Type.Array(Type.Object({
 	id: Uuid,
-	action: Type.Union([Type.Literal('created'), Type.Literal('completed'), Type.Literal('edited'), Type.Literal('deleted'), Type.Literal('restored')]),
+	action: EntryHistoryAction,
 	at: Timestamp,
 	before: Type.Union([EntryResponse, Type.Null()]),
 	after: EntryResponse,
@@ -133,6 +141,12 @@ export const EntryHistoryResponse = Type.Array(Type.Object({
 
 export const entryTrashPath = `${entriesPath}/trash`;
 export const EntryLifecycleBody = Type.Object({ revision: Revision }, strict);
+export const EntryInvoiceBody = Type.Object({
+	revision: Revision,
+	invoiceNumber: Type.Optional(Type.Union([Type.String({ maxLength: maxInvoiceNumberLength }), Type.Null()])),
+	invoiceDate: Type.Optional(Type.Union([EntryLocalDate, Type.Literal(''), Type.Null()])),
+	invoiceReference: Type.Optional(Type.Union([Type.String({ maxLength: maxInvoiceReferenceLength }), Type.Null()])),
+}, strict);
 export const TrashedEntryResponse = Type.Object({ entry: EntryResponse, deletedAt: Timestamp, restoreUntil: Timestamp }, strict);
 export const EntryTrashResponse = Type.Array(TrashedEntryResponse);
 
@@ -149,6 +163,8 @@ export type EntryEditTime = Static<typeof EntryEditTime>;
 export type EntryEditBody = Static<typeof EntryEditBody>;
 export type EntryEditPreview = Static<typeof EntryEditPreview>;
 export type EntryHistoryResponse = Static<typeof EntryHistoryResponse>;
+export type EntryHistoryAction = Static<typeof EntryHistoryAction>;
+export type EntryInvoiceBody = Static<typeof EntryInvoiceBody>;
 export type EntryLifecycleBody = Static<typeof EntryLifecycleBody>;
 export type TrashedEntryResponse = Static<typeof TrashedEntryResponse>;
 export type EntryTrashResponse = Static<typeof EntryTrashResponse>;
@@ -174,6 +190,11 @@ export function parseEntryEditPreview(value: unknown): EntryEditPreview {
 
 export function parseEntryHistoryResponse(value: unknown): EntryHistoryResponse {
 	if (!Value.Check(EntryHistoryResponse, value)) throw new Error('Invalid entry history response');
+	return value;
+}
+
+export function parseEntryHistoryAction(value: unknown): EntryHistoryAction {
+	if (!Value.Check(EntryHistoryAction, value)) throw new Error('Invalid time entry history action');
 	return value;
 }
 

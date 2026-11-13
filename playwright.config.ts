@@ -7,14 +7,16 @@ const transitionSpecs = '**/timer-transitions.spec.ts';
 const correctionSpecs = '**/entry-corrections.spec.ts';
 const workListSpecs = '**/work-list.spec.ts';
 const trashSpecs = '**/entry-trash.spec.ts';
+const invoiceSpecs = '**/entry-invoice.spec.ts';
 const suites = [
-	{ prefix: '', firstPort: 4317, filter: { testIgnore: [catalogSpecs, entrySpecs, transitionSpecs, correctionSpecs, workListSpecs, trashSpecs] } },
+	{ prefix: '', firstPort: 4317, filter: { testIgnore: [catalogSpecs, entrySpecs, transitionSpecs, correctionSpecs, workListSpecs, trashSpecs, invoiceSpecs] } },
 	{ prefix: 'catalog-', firstPort: 4319, filter: { testMatch: catalogSpecs } },
 	{ prefix: 'entries-', firstPort: 4321, filter: { testMatch: entrySpecs } },
 	{ prefix: 'transitions-', firstPort: 4323, filter: { testMatch: transitionSpecs } },
 	{ prefix: 'corrections-', firstPort: 4325, filter: { testMatch: correctionSpecs } },
 	{ prefix: 'work-list-', firstPort: 4327, filter: { testMatch: workListSpecs } },
 	{ prefix: 'trash-', firstPort: 4329, filter: { testMatch: trashSpecs } },
+	{ prefix: 'invoice-', firstPort: 4331, filter: { testMatch: invoiceSpecs } },
 ];
 const viewports = [
 	{ name: 'desktop', use: { viewport: { width: 1280, height: 800 } } },

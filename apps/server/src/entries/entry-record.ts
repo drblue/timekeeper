@@ -16,6 +16,10 @@ export function activeEntryWhere(accountId: string) {
 	return { accountId, deletedAt: null } satisfies Prisma.EntryWhereInput;
 }
 
+export function checkEntryRevision(current: { revision: number }, revision: number) {
+	if (current.revision !== revision) throw new ApiRequestError(409, 'REVISION_CONFLICT', 'Time entry changed. Reload and try again.');
+}
+
 export function entryResponse(entry: EntryWithRelations): EntryResponse {
 	const fields = {
 		id: entry.id,
@@ -28,6 +32,8 @@ export function entryResponse(entry: EntryWithRelations): EntryResponse {
 		revision: entry.revision,
 		...(entry.invoicedAt ? { invoicedAt: entry.invoicedAt.toISOString() } : {}),
 		...(entry.invoiceNumber !== null ? { invoiceNumber: entry.invoiceNumber } : {}),
+		...(entry.invoiceDate !== null ? { invoiceDate: entry.invoiceDate } : {}),
+		...(entry.invoiceReference !== null ? { invoiceReference: entry.invoiceReference } : {}),
 		...(entry.deletedAt ? { deletedAt: entry.deletedAt.toISOString() } : {}),
 	};
 	if (entry.kind === 'duration-only' && entry.completion === 'complete' && entry.billableAmountOre !== null) {

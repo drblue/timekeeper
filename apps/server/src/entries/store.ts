@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { parseEntryResponse } from '@timekeeper/contracts';
+import { parseEntryHistoryAction } from '@timekeeper/contracts';
 import type { CompleteEntryBody, CreateEntryBody, EntryEditBody, EntryEditPreview, EntryEditTime, EntryHistoryResponse, EntryResponse, EntryTrashResponse, TimedEntryResponse, TrashedEntryResponse } from '@timekeeper/contracts';
 import { writeForAccount } from '../account-write.ts';
 import { ApiRequestError } from '../api-error.ts';
@@ -10,26 +10,18 @@ import type { EntryDaySegment } from './timed-entry.ts';
 import { billingDefaults, resolveWorkSettings, validateWorkAssociation, workDescription } from './work-settings.ts';
 import type { WorkSettings } from './work-settings.ts';
 import { createWorkList } from './work-list.ts';
-import { activeEntryWhere, entryBilling, entryRelations, entryResponse, requireCompleteAmount } from './entry-record.ts';
+import { activeEntryWhere, checkEntryRevision, entryBilling, entryRelations, entryResponse, requireCompleteAmount } from './entry-record.ts';
 import type { EntryWithRelations } from './entry-record.ts';
+import { readHistorySnapshot, recordHistory } from './entry-history.ts';
+import { validLocalDate } from '../local-date.ts';
+import { createEntryInvoiceStore } from './invoicing.ts';
 
 const allocationCalculationVersion = 1;
 const trashRetentionMs = 30 * 24 * 60 * 60 * 1_000;
-function checkLocalDate(localDate: string) {
-	const year = Number(localDate.slice(0, 4));
-	const month = Number(localDate.slice(5, 7));
-	const day = Number(localDate.slice(8, 10));
-	const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-	const monthDays = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-	if (year === 0 || day < 1 || day > (monthDays[month - 1] ?? 0)) {
-		throw new ApiRequestError(422, 'INVALID_LOCAL_DATE', 'Enter a valid calendar date.', 'localDate');
-	}
-}
-
 function entryTime(input: EntryEditTime): EntryTime {
 	if (input.kind === 'timed') return manualTimedInterval(input);
 	const { localDate, durationSeconds } = input;
-	checkLocalDate(localDate);
+	if (!validLocalDate(localDate)) throw new ApiRequestError(422, 'INVALID_LOCAL_DATE', 'Enter a valid calendar date.', 'localDate');
 	return { localDate, durationSeconds, startAt: null, endAt: null, segments: [{ localDate, seconds: durationSeconds }] };
 }
 
@@ -44,31 +36,6 @@ interface EntryTime {
 	startAt: Date | null;
 	endAt: Date | null;
 	segments: EntryDaySegment[];
-}
-
-async function recordHistory(
-	transaction: Prisma.TransactionClient, action: EntryHistoryResponse[number]['action'], at: Date,
-	after: EntryResponse, before?: EntryResponse, operationKey?: string,
-) {
-	await transaction.entryHistory.create({ data: {
-		id: randomUUID(), entryId: after.id, action, at, operationKey,
-		beforeSnapshot: before ? JSON.stringify({ version: 1, entry: before }) : null,
-		afterSnapshot: JSON.stringify({ version: 1, entry: after }),
-	} });
-}
-
-function readHistorySnapshot(snapshot: string, id: string): EntryResponse {
-	const parsed: unknown = JSON.parse(snapshot);
-	if (!parsed || typeof parsed !== 'object' || !('version' in parsed) || parsed.version !== 1 || !('entry' in parsed)) {
-		throw new Error('Invalid time entry history snapshot');
-	}
-	const entry = parseEntryResponse(parsed.entry);
-	if (entry.id !== id) throw new Error('Time entry history refers to another entry');
-	return entry;
-}
-
-function checkEntryRevision(current: EntryWithRelations, revision: number) {
-	if (current.revision !== revision) throw new ApiRequestError(409, 'REVISION_CONFLICT', 'Time entry changed. Reload and try again.');
 }
 
 function requireUninvoicedEntry(current: EntryWithRelations, action: 'editing' | 'deleting') {
@@ -206,6 +173,7 @@ export async function writeEntry(
 export function createEntryStore(database: PrismaClient, now: () => Date = () => new Date()) {
 	return {
 		getWorkList: createWorkList(database, now),
+		...createEntryInvoiceStore(database, now),
 		async listEntries(accountId: string): Promise<EntryResponse[]> {
 			const entries = await database.$transaction((transaction) => transaction.entry.findMany({
 				where: activeEntryWhere(accountId),
@@ -278,10 +246,7 @@ export function createEntryStore(database: PrismaClient, now: () => Date = () =>
 				if (!owner) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
 				const rows = await transaction.entryHistory.findMany({ where: { entryId: id }, orderBy: [{ at: 'desc' }, { id: 'desc' }] });
 				return rows.map(({ id: historyId, action, at, beforeSnapshot, afterSnapshot }) => {
-					if (action !== 'created' && action !== 'completed' && action !== 'edited' && action !== 'deleted' && action !== 'restored') {
-						throw new Error('Invalid time entry history action');
-					}
-					return { id: historyId, action, at: at.toISOString(),
+					return { id: historyId, action: parseEntryHistoryAction(action), at: at.toISOString(),
 						before: beforeSnapshot === null ? null : readHistorySnapshot(beforeSnapshot, id), after: readHistorySnapshot(afterSnapshot, id) };
 				});
 			});
