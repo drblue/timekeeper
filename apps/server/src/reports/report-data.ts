@@ -5,6 +5,7 @@ import { readCompletedWork, resolveWorkScope, totalWork, workDateRange } from '.
 import { workAssociation } from '../entries/work-settings.ts';
 import type { PrismaClient } from '../generated/prisma/client.ts';
 import { validLocalDate } from '../local-date.ts';
+import { captureReportBranding } from './settings.ts';
 
 type ProjectShare = ReportPreviewResponse['projectShares'][number];
 type ReportLine = Omit<ReportPreviewResponse['summaries'][number], 'hourlyRateOre' | 'amountOre'> & {
@@ -14,6 +15,9 @@ type ReportLine = Omit<ReportPreviewResponse['summaries'][number], 'hourlyRateOr
 
 export interface ReportData {
 	readonly showMoney: boolean;
+	readonly language: ReportPreviewResponse['language'];
+	readonly branding: Readonly<ReportPreviewResponse['branding']>;
+	readonly logoPngBase64: string | null;
 	readonly scope: Readonly<ReportPreviewResponse['scope']>;
 	readonly totalSeconds: number;
 	readonly totalAmountOre: bigint;
@@ -29,7 +33,7 @@ function compareText(left: string, right: string) {
 }
 
 export async function buildReportData(
-	database: PrismaClient, accountId: string, query: ReportPreviewQuery, now: Date, includeDetails = false,
+	database: PrismaClient, accountId: string, query: ReportPreviewQuery, now: Date, includeDetails = query.includeDetails === 'true',
 ): Promise<ReportData> {
 	const range = workDateRange(query, now.toISOString());
 	if (!validLocalDate(range.from) || !validLocalDate(range.to)) {
@@ -39,10 +43,10 @@ export async function buildReportData(
 	if (dayCount > maxReportDays) {
 		throw new ApiRequestError(422, 'REPORT_RANGE_TOO_LONG', `Choose a report period of at most ${maxReportDays} days.`);
 	}
-	const { scope, rows } = await database.$transaction(async (transaction) => {
+	const { scope, rows, branding, logoPngBase64 } = await database.$transaction(async (transaction) => {
 		const scope = await resolveWorkScope(transaction, accountId, range, query);
 		const rows = await readCompletedWork(transaction, scope, undefined, true);
-		return { scope, rows };
+		return { scope, rows, ...await captureReportBranding(transaction, accountId) };
 	});
 
 	const showMoney = query.showMoney === 'true';
@@ -79,6 +83,9 @@ export async function buildReportData(
 
 	return Object.freeze({
 		showMoney,
+		language: query.language ?? 'en',
+		branding: Object.freeze({ ...branding, logo: branding.logo ? Object.freeze(branding.logo) : null }),
+		logoPngBase64,
 		scope: Object.freeze({ ...range, clientId: query.clientId ?? null, clientName: scope.clientName,
 			projectId: query.projectId ?? null, projectName: scope.projectName, invoice: query.invoice ?? 'all', billability: query.billability ?? 'all',
 			description: query.description?.trim() ?? '', invoiceNumber: query.invoiceNumber?.trim() ?? '' }),
@@ -93,11 +100,14 @@ export async function buildReportData(
 }
 
 export function reportPreview(data: ReportData): ReportPreviewResponse {
-	const { showMoney, scope, totalSeconds, totalAmountOre, days, projectShares, summaries, incompatibleSelection } = data;
+	const { showMoney, language, branding, scope, totalSeconds, totalAmountOre, days, projectShares, summaries, details, incompatibleSelection } = data;
+	function serializeLine<T extends ReportLine>({ hourlyRateOre, amountOre, ...row }: T) {
+		return { ...row, hourlyRateOre: hourlyRateOre?.toString() ?? null, amountOre: amountOre.toString() };
+	}
 	return {
-		showMoney, scope, totalSeconds, totalAmountOre: totalAmountOre.toString(), days: [...days], projectShares: [...projectShares],
-		summaries: summaries.map(({ hourlyRateOre, amountOre, ...row }) => ({ ...row,
-			hourlyRateOre: hourlyRateOre?.toString() ?? null, amountOre: amountOre.toString() })),
+		showMoney, language, branding, includeDetails: Boolean(details), scope, totalSeconds, totalAmountOre: totalAmountOre.toString(), days: [...days],
+		projectShares: [...projectShares], summaries: summaries.map((row) => serializeLine(row)),
+		...(details ? { details: details.map((row) => serializeLine(row)) } : {}),
 		incompatibleSelection,
 	};
 }

@@ -1242,3 +1242,75 @@ button:disabled {
 		width: min(100%, 10rem);
 	}
 }
+
+.report-options,
+.report-content {
+	display: grid;
+	gap: 0.65rem 1rem;
+	min-inline-size: 0;
+}
+
+.report-content {
+	gap: 1rem;
+}
+
+.report-options .report-month-field {
+	justify-self: start;
+}
+
+.report-identity {
+	display: flex;
+	justify-content: space-between;
+	align-items: start;
+	gap: 0.75rem 1rem;
+	padding-block: 0.5rem 0.8rem;
+	border-block-end: 1px solid var(--border);
+	overflow-wrap: anywhere;
+}
+
+.report-identity h2,
+.report-identity p,
+.report-saved-logo p {
+	margin: 0;
+}
+
+.report-identity h2 {
+	font-size: 1.4rem;
+}
+
+.report-identity p {
+	margin-block-start: 0.3rem;
+}
+
+.report-logo-display {
+	flex: 0 0 auto;
+	max-inline-size: min(100%, 10rem);
+}
+
+.report-logo-display button {
+	margin-block-start: 0.35rem;
+}
+
+.report-logo {
+	display: block;
+	max-inline-size: min(100%, 8rem);
+	max-block-size: 4.5rem;
+	object-fit: contain;
+}
+
+.report-saved-logo {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 0.55rem 1rem;
+}
+
+@media (min-width: 46rem) {
+	.report-options {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.report-options .report-month-field {
+		grid-column: 1 / -1;
+	}
+}

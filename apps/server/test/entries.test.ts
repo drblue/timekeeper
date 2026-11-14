@@ -4,6 +4,7 @@ import { copyFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { crc32, deflateSync } from 'node:zlib';
 import {
 	authSessionPath,
 	bulkEntryCommitPath,
@@ -16,6 +17,7 @@ import {
 	maxEntryDescriptionLength,
 	maxEntryDurationSeconds,
 	maxHourlyRateOre,
+	maxReportLogoBytes,
 	parseAuthSessionResponse,
 	parseBulkEntryCommitResponse,
 	parseBulkEntryPreviewResponse,
@@ -26,14 +28,18 @@ import {
 	parseEntryResponse,
 	parseProjectResponse,
 	parseReportPreviewResponse,
+	parseReportSettingsResponse,
 	parseTrashedEntryResponse,
 	parseWorkListResponse,
 	projectsPath,
 	reportPreviewPath,
+	reportLogoPath,
+	reportSettingsPath,
 	workListPath,
 } from '@timekeeper/contracts';
 import type { BulkEntryPreviewBody, CreateDurationEntryBody, CreateTimedEntryBody, EntryEditBody, EntryResponse, ReportPreviewQuery, WorkListQuery } from '@timekeeper/contracts';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { PNG } from 'pngjs';
 import { createApp } from '../src/app.ts';
 import { openDatabase } from '../src/auth/database.ts';
 import { createAuthStore, randomToken } from '../src/auth/store.ts';
@@ -41,6 +47,7 @@ import { createCatalogStore } from '../src/catalog/store.ts';
 import { createEntryStore } from '../src/entries/store.ts';
 import { buildReportData } from '../src/reports/report-data.ts';
 import { createReportPreview } from '../src/reports/routes.ts';
+import { createReportSettings } from '../src/reports/settings.ts';
 
 const origin = 'https://timekeeper.example.test';
 
@@ -116,6 +123,7 @@ describe('Manual entries', () => {
 			catalog: createCatalogStore(database),
 			entries: createEntryStore(database, () => new Date(now)),
 			reportPreview: createReportPreview(database, () => new Date(now)),
+			reportSettings: createReportSettings(database),
 		});
 		session = await sessionFor(accountId);
 	});
@@ -142,6 +150,17 @@ describe('Manual entries', () => {
 		expect(result.statusCode, result.body).toBe(200);
 		expect(result.headers['cache-control']).toBe('no-store');
 		return parseReportPreviewResponse(result.json());
+	}
+
+	function putLogo(payload: Buffer, contentType = 'image/png', expected = 'none') {
+		return app.inject({ ...session, method: 'PUT', url: `${reportLogoPath}?expectedLogoId=${expected}`, payload,
+			headers: { ...session.headers, 'content-type': contentType } });
+	}
+
+	function png(red: number) {
+		const image = new PNG({ width: 1, height: 1 });
+		image.data.set([red, 30, 90, 255]);
+		return PNG.sync.write(image);
 	}
 
 	async function bulkPreview(input: BulkEntryPreviewBody) {
@@ -1106,5 +1125,91 @@ describe('Manual entries', () => {
 		const annual = await readReport({ from: '2024-01-01', to: '2024-12-31' });
 		expect(annual.days).toHaveLength(366);
 		expect(annual.days[59]).toEqual({ date: '2024-02-29', seconds: 0 });
+	});
+
+	it('persists report branding and captures immutable presentation settings and logo bytes without changing totals', async () => {
+		const work = await createEntry({ localDate: '2026-11-16', billable: true, rateOverrideOrePerHour: '1' });
+		const defaultReport = await readReport();
+		expect(defaultReport).toMatchObject({ language: 'en', showMoney: false, includeDetails: false, branding: { businessName: null, logo: null } });
+		expect(defaultReport.details).toBeUndefined();
+		const owner = await request('PUT', reportSettingsPath, { businessName: '  Väster Studio  ' });
+		expect(owner.statusCode).toBe(200);
+		expect(parseReportSettingsResponse(owner.json())).toEqual({ businessName: 'Väster Studio', logo: null });
+		const upload = await putLogo(png(190));
+		expect(upload.statusCode, upload.body).toBe(200);
+		const branding = parseReportSettingsResponse(upload.json());
+		expect(branding).toMatchObject({ businessName: 'Väster Studio', logo: { width: 1, height: 1 } });
+		const firstLogo = branding.logo!;
+		const firstDownload = await request('GET', firstLogo.url);
+		expect(firstDownload.statusCode).toBe(200);
+		expect(firstDownload.headers).toMatchObject({ 'content-type': 'image/png', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+		expect(PNG.sync.read(firstDownload.rawPayload).data).toEqual(Buffer.from([190, 30, 90, 255]));
+		expect((await app.inject({ url: firstLogo.url })).statusCode).toBe(401);
+		const query = { language: 'sv', includeDetails: 'true', showMoney: 'true' } as const;
+		const presented = await readReport(query);
+		expect(presented).toMatchObject({ language: 'sv', includeDetails: true, showMoney: true, branding,
+			totalSeconds: defaultReport.totalSeconds, totalAmountOre: defaultReport.totalAmountOre,
+			details: [{ entryId: work.id, date: work.localDate, hourlyRateOre: '1', amountOre: work.billableAmountOre }] });
+		const frozen = await buildReportData(database, accountId, query, new Date(now));
+		expect(frozen.logoPngBase64).toBe(firstDownload.rawPayload.toString('base64'));
+		expect(Object.isFrozen(frozen.branding.logo)).toBe(true);
+		const replaced = parseReportSettingsResponse((await putLogo(png(10), 'image/png', firstLogo.id)).json());
+		expect(replaced.logo?.id).not.toBe(firstLogo.id);
+		const staleRemoval = await app.inject({ ...session, method: 'DELETE', url: `${reportLogoPath}?expectedLogoId=${firstLogo.id}` });
+		expect(staleRemoval.statusCode).toBe(409);
+		expect(staleRemoval.json()).toMatchObject({ code: 'REPORT_LOGO_CHANGED' });
+		expect((await putLogo(png(20), 'image/png', firstLogo.id)).json()).toMatchObject({ code: 'REPORT_LOGO_CHANGED' });
+		expect((await request('GET', firstLogo.url)).statusCode).toBe(404);
+		expect((await request('PUT', reportSettingsPath, { businessName: 'Another business' })).statusCode).toBe(200);
+		const fresh = await buildReportData(database, accountId, query, new Date(now));
+		expect(fresh.branding).toMatchObject({ businessName: 'Another business', logo: { id: replaced.logo?.id } });
+		expect(fresh.logoPngBase64).not.toBe(frozen.logoPngBase64);
+		expect(frozen.branding).toEqual(branding);
+		expect(frozen.logoPngBase64).toBe(firstDownload.rawPayload.toString('base64'));
+		const cleared = await app.inject({ ...session, method: 'DELETE', url: `${reportLogoPath}?expectedLogoId=${replaced.logo!.id}` });
+		expect(parseReportSettingsResponse(cleared.json())).toEqual({ businessName: 'Another business', logo: null });
+		expect((await request('GET', replaced.logo!.url)).statusCode).toBe(404);
+	});
+
+	it('rejects malformed, oversized and cross-owner logos without changing saved settings', async () => {
+		const valid = png(190);
+		const saved = parseReportSettingsResponse((await putLogo(valid)).json());
+		const interlaced = Buffer.from(valid);
+		interlaced[28] = 1;
+		const wide = Buffer.from(valid);
+		wide.writeUInt32BE(1_601, 16);
+		const duplicateHeader = Buffer.concat([valid.subarray(0, 33), valid.subarray(8, 33), valid.subarray(33)]);
+		const badCrc = Buffer.from(valid);
+		badCrc[32] = badCrc[32]! ^ 1;
+		const inflated = deflateSync(Buffer.alloc(16_384));
+		const overInflatedIdat = Buffer.alloc(12 + inflated.length);
+		overInflatedIdat.writeUInt32BE(inflated.length);
+		overInflatedIdat.write('IDAT', 4);
+		inflated.copy(overInflatedIdat, 8);
+		overInflatedIdat.writeUInt32BE(crc32(overInflatedIdat.subarray(4, -4)), overInflatedIdat.length - 4);
+		const overInflated = Buffer.concat([valid.subarray(0, 33), overInflatedIdat, valid.subarray(-12)]);
+		for (const input of [Buffer.from('<svg onload="alert(1)"></svg>'), interlaced, duplicateHeader, badCrc, overInflated, valid.subarray(0, 40),
+			Buffer.concat([valid, Buffer.from('trailing')])]) {
+			const rejected = await putLogo(input);
+			expect(rejected.statusCode, rejected.body).toBe(422);
+			expect(rejected.json()).toMatchObject({ code: 'INVALID_REPORT_LOGO' });
+		}
+		expect((await putLogo(wide)).json()).toMatchObject({ code: 'REPORT_LOGO_DIMENSIONS' });
+		expect((await putLogo(Buffer.alloc(maxReportLogoBytes + 1))).statusCode).toBe(413);
+		expect((await putLogo(valid, 'image/jpeg')).statusCode).toBe(415);
+		expect((await app.inject({ ...session, method: 'PUT', url: reportLogoPath, payload: valid,
+			headers: { origin, 'content-type': 'image/png' } })).statusCode).toBe(403);
+		expect(parseReportSettingsResponse((await request('GET', reportSettingsPath)).json())).toEqual(saved);
+		const foreignId = randomUUID();
+		await database.$executeRaw`PRAGMA ignore_check_constraints = ON`;
+		try {
+			await database.account.create({ data: { id: foreignId, ownerSlot: 2, email: 'branding-other@example.test', passwordHash: 'unused' } });
+		} finally {
+			await database.$executeRaw`PRAGMA ignore_check_constraints = OFF`;
+		}
+		session = await sessionFor(foreignId);
+		expect((await request('GET', saved.logo!.url)).statusCode).toBe(404);
+		expect(parseReportSettingsResponse((await request('GET', reportSettingsPath)).json())).toEqual({ businessName: null, logo: null });
+		expect((await readReport()).branding).toEqual({ businessName: null, logo: null });
 	});
 });

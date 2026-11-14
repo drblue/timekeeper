@@ -8,7 +8,7 @@ export class ApiRequestError extends Error {
 	}
 }
 
-async function requestError(response: Response) {
+export async function requestError(response: Response) {
 	const payload: unknown = await response.clone().json().catch(() => undefined);
 	const code = payload && typeof payload === 'object' && 'code' in payload && typeof payload.code === 'string'
 		? payload.code

@@ -23,6 +23,7 @@ model Account {
   runningTimer RunningTimer?
   operationReceipts OperationReceipt[]
   bulkEntryPreviews BulkEntryPreview[]
+  reportSettings ReportSettings?
 }
 
 model Session {
@@ -34,6 +35,16 @@ model Session {
 
   @@index([accountId])
   @@index([expiresAt])
+}
+
+model ReportSettings {
+	accountId    String   @id
+	account      Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+	businessName String?
+	logoId       String?  @unique
+	logoWidth    Int?
+	logoHeight   Int?
+	logoBytes    Bytes?
 }
 
 model Client {

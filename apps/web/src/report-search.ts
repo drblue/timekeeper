@@ -3,6 +3,8 @@ import type { WorkListLocation, WorkListSearch } from './work-list-search';
 
 export type ReportSearch = Omit<WorkListSearch, 'page' | 'sort'> & {
 	showMoney?: 'true';
+	language?: 'sv';
+	includeDetails?: 'true';
 	back?: string;
 };
 
@@ -28,6 +30,8 @@ export function validateReportSearch(raw: Record<string, unknown>): ReportSearch
 	return {
 		...reportFilters(validateWorkListSearch(raw)),
 		showMoney: raw.showMoney === 'true' ? 'true' : undefined,
+		language: raw.language === 'sv' ? 'sv' : undefined,
+		includeDetails: raw.includeDetails === 'true' ? 'true' : undefined,
 		back: back || undefined,
 	};
 }

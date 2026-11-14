@@ -158,6 +158,13 @@ const reportPreviewRoute = createRoute({
 	component: lazyRouteComponent(() => import('./report-preview'), 'ReportPreview'),
 });
 
+const reportSettingsRoute = createRoute({
+	getParentRoute: () => protectedRoute,
+	path: '/settings/report',
+	validateSearch: validateReportSearch,
+	component: lazyRouteComponent(() => import('./report-settings'), 'ReportSettings'),
+});
+
 export const router = createRouter({
 	parseSearch: (search) => Object.fromEntries(new URLSearchParams(search)),
 	stringifySearch: (search) => {
@@ -170,7 +177,7 @@ export const router = createRouter({
 	},
 	routeTree: rootRoute.addChildren([
 		loginRoute,
-		protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute, entriesRoute, entryDetailRoute, entryTrashRoute, reportPreviewRoute]),
+		protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute, entriesRoute, entryDetailRoute, entryTrashRoute, reportPreviewRoute, reportSettingsRoute]),
 	]),
 });
 

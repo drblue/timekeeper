@@ -2,23 +2,22 @@ import type { ReportPreviewResponse } from '@timekeeper/contracts';
 import { useId, useState } from 'react';
 import { formatDuration } from './entry-display';
 import { reportIdentityLabels } from './report-labels';
+import { reportLocale, reportText } from './report-language';
+import type { ReportLanguage } from './report-language';
 
 type Day = ReportPreviewResponse['days'][number];
 type Project = ReportPreviewResponse['projectShares'][number];
-
-const monthFormat = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-const dayFormat = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
-const percent = new Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 2 });
 
 function chartDate(date: string) {
 	return new Date(date + 'T00:00:00Z');
 }
 
-function monthLabel(month: string) {
-	return monthFormat.format(chartDate(month + '-01'));
-}
-
-export function DailyReportChart({ days }: { days: Day[] }) {
+export function DailyReportChart({ days, language }: { days: Day[]; language: ReportLanguage }) {
+	const copy = reportText[language];
+	const locale = reportLocale(language);
+	const monthFormat = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+	const dayFormat = new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+	const monthLabel = (month: string) => monthFormat.format(chartDate(month + '-01'));
 	const heading = useId();
 	const months = new Map<string, Day[]>();
 	let maximum = 0;
@@ -38,10 +37,10 @@ export function DailyReportChart({ days }: { days: Day[] }) {
 	return (
 		<section className="panel report-section" aria-labelledby={heading}>
 			<div className="catalog-toolbar">
-				<h2 id={heading}>Daily hours</h2>
+				<h2 id={heading}>{copy.daily}</h2>
 				{months.size > 1 ? (
 					<div className="field report-month-field">
-						<label htmlFor={heading + '-month'}>Month</label>
+						<label htmlFor={heading + '-month'}>{copy.month}</label>
 						<select id={heading + '-month'} value={month} onChange={(event) => setChosenMonth(event.target.value)}>
 							{Array.from(months.keys(), (key) => <option key={key} value={key}>{monthLabel(key)}</option>)}
 						</select>
@@ -68,9 +67,9 @@ export function DailyReportChart({ days }: { days: Day[] }) {
 			</div>
 			{current.length ? (
 				<details className="report-daily-values">
-					<summary>View daily values</summary>
+					<summary>{copy.dailyValues}</summary>
 					<table className="report-table">
-						<thead><tr><th scope="col">Date</th><th scope="col">Duration</th></tr></thead>
+						<thead><tr><th scope="col">{copy.date}</th><th scope="col">{copy.duration}</th></tr></thead>
 						<tbody>{current.map((day) => (
 							<tr key={day.date}><th scope="row"><time dateTime={day.date}>{dayFormat.format(chartDate(day.date))}</time></th>
 								<td>{formatDuration(day.seconds)}</td></tr>
@@ -83,9 +82,9 @@ export function DailyReportChart({ days }: { days: Day[] }) {
 }
 
 const pieColors = ['#216052', '#386990', '#99602e', '#76558d', '#276d70', '#8c4b59', '#596a35', '#66584c'];
-function shareLabel(share: number) {
-	if (share < 0.0001) return '<0.01%';
-	if (share > 0.9999 && share < 1) return '>99.99%';
+function shareLabel(share: number, percent: Intl.NumberFormat) {
+	if (share < 0.0001) return '<' + percent.format(0.0001);
+	if (share > 0.9999 && share < 1) return '>' + percent.format(0.9999);
 	return percent.format(share);
 }
 
@@ -96,11 +95,13 @@ function piePoint(turn: number) {
 	return [center + pieRadius * Math.cos(angle), center + pieRadius * Math.sin(angle)] as const;
 }
 
-export function ProjectReportChart({ projects, totalSeconds }: { projects: Project[]; totalSeconds: number }) {
+export function ProjectReportChart({ projects, totalSeconds, language }: { projects: Project[]; totalSeconds: number; language: ReportLanguage }) {
+	const copy = reportText[language];
+	const percent = new Intl.NumberFormat('sv-SE', { style: 'percent', maximumFractionDigits: 2 });
 	const heading = useId();
 	const present = projects.filter((project) => project.seconds > 0);
 	const projectLabel = reportIdentityLabels(
-		present, (project) => project.projectName ?? 'No project', (project) => project.projectId ?? '',
+		present, (project) => project.projectName ?? copy.noProject, (project) => project.projectId ?? '', copy.unassigned,
 	);
 	let cumulative = 0;
 	const slices = present.map((project, index) => {
@@ -111,14 +112,14 @@ export function ProjectReportChart({ projects, totalSeconds }: { projects: Proje
 	});
 	return (
 		<section className="panel report-section" aria-labelledby={heading}>
-			<h2 id={heading}>Time by project</h2>
+			<h2 id={heading}>{copy.projectShares}</h2>
 			{totalSeconds > 0 && slices.length ? (
 				<div className="report-project-layout">
 					<svg className="report-pie" viewBox="0 0 100 100" aria-hidden="true">
 						{slices.length === 1 ? (
 							<>
 								<circle cx={center} cy={center} r={pieRadius} fill={slices[0]?.color} />
-								<text x={center} y={center} className="report-pie-full-label">100%</text>
+								<text x={center} y={center} className="report-pie-full-label">{percent.format(1)}</text>
 							</>
 						) : slices.map(({ project, share, start, end, color }, index) => {
 							const [x1, y1] = piePoint(start);
@@ -133,7 +134,7 @@ export function ProjectReportChart({ projects, totalSeconds }: { projects: Proje
 							);
 						})}
 					</svg>
-					<ol className="report-project-legend" aria-label="Project duration and share">
+					<ol className="report-project-legend" aria-label={copy.projectShareLegend}>
 						{slices.map(({ project, share, color }, index) => (
 							<li key={project.projectId ?? 'none'}>
 								<span className="report-project-number" style={{ backgroundColor: color }} aria-hidden="true">{index + 1}</span>
@@ -142,12 +143,12 @@ export function ProjectReportChart({ projects, totalSeconds }: { projects: Proje
 									{project.clientName ? <span className="field-hint">{project.clientName}</span> : null}
 								</span>
 								<span>{formatDuration(project.seconds)}</span>
-								<strong>{shareLabel(share)}</strong>
+								<strong>{shareLabel(share, percent)}</strong>
 							</li>
 						))}
 					</ol>
 				</div>
-			) : <p className="catalog-empty">No time recorded in this range.</p>}
+			) : <p className="catalog-empty">{copy.noTime}</p>}
 		</section>
 	);
 }

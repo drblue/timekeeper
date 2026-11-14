@@ -1,0 +1,68 @@
+export type ReportLanguage = 'en' | 'sv';
+
+const en = {
+	title: 'Time report',
+	logo: 'Report logo',
+	logoUnavailable: 'Could not load the saved logo.',
+	refreshLogo: 'Refresh logo',
+	completed: 'Completed work',
+	totals: 'Report totals',
+	duration: 'Duration',
+	amount: 'Billable amount',
+	daily: 'Daily hours',
+	month: 'Month',
+	dailyValues: 'View daily values',
+	date: 'Date',
+	projectShares: 'Time by project',
+	projectShareLegend: 'Project duration and share',
+	noProject: 'No project',
+	noClient: 'No client',
+	noTime: 'No time recorded in this range.',
+	noMatching: 'No completed work matches these filters.',
+	incompatible: 'The selected project does not belong to the selected client. Change one of the filters.',
+	descriptionSummary: 'Work by description',
+	work: 'Work',
+	appendix: 'Detailed entries',
+	appendixPage: 'Appendix pages',
+	previous: 'Previous page',
+	next: 'Next page',
+	page: (number: number, total: number) => `Page ${number} of ${total}`,
+	unassigned: 'Unassigned',
+};
+
+export const reportText: Record<ReportLanguage, typeof en> = {
+	en,
+	sv: {
+		title: 'Tidrapport',
+		logo: 'Rapportlogotyp',
+		logoUnavailable: 'Det gick inte att läsa in den sparade logotypen.',
+		refreshLogo: 'Uppdatera logotyp',
+		completed: 'Slutfört arbete',
+		totals: 'Rapportens totaler',
+		duration: 'Tid',
+		amount: 'Debiterbart belopp',
+		daily: 'Tid per dag',
+		month: 'Månad',
+		dailyValues: 'Visa tid per dag',
+		date: 'Datum',
+		projectShares: 'Tid per projekt',
+		projectShareLegend: 'Tid och andel per projekt',
+		noProject: 'Inget projekt',
+		noClient: 'Ingen kund',
+		noTime: 'Ingen tid registrerad under perioden.',
+		noMatching: 'Inget slutfört arbete matchar filtren.',
+		incompatible: 'Det valda projektet tillhör inte den valda kunden. Ändra ett av filtren.',
+		descriptionSummary: 'Arbete per beskrivning',
+		work: 'Arbete',
+		appendix: 'Detaljerade tidposter',
+		appendixPage: 'Bilagans sidor',
+		previous: 'Föregående sida',
+		next: 'Nästa sida',
+		page: (number, total) => `Sida ${number} av ${total}`,
+		unassigned: 'Ingen koppling',
+	},
+};
+
+export function reportLocale(language: ReportLanguage) {
+	return language === 'sv' ? 'sv-SE' : 'en-GB';
+}
