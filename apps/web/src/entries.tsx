@@ -128,7 +128,13 @@ export function Entries() {
 
 	function bulkSaved(result: BulkEntryCommitResponse) {
 		const action = { 'mark-invoiced': 'marked as invoiced', 'unmark-invoiced': 'unmarked', delete: 'moved to Trash' };
-		setBulkFeedback(result.count === 1 ? '1 entry ' + action[result.action] + '.' : result.count + ' entries ' + action[result.action] + '.');
+		if (result.splits?.length) {
+			const splitCount = result.splits.length;
+			setBulkFeedback((splitCount === 1 ? '1 entry split. ' : splitCount + ' entries split. ') +
+				'Work within the selected dates marked as invoiced.');
+		} else {
+			setBulkFeedback(result.count === 1 ? '1 entry ' + action[result.action] + '.' : result.count + ' entries ' + action[result.action] + '.');
+		}
 		heading.current?.focus();
 		void queryClient.invalidateQueries({ queryKey: entriesKey });
 	}
@@ -339,7 +345,27 @@ export function EntryDetail() {
 							</div>
 						) : null}
 					</dl>
-					{editingEntry?.id === entryId ? (
+					{data.splitFromEntryId ? (
+						<p className="feedback">
+							Created by splitting a time entry.{' '}
+							<Link to="/entries/$entryId" params={{ entryId: data.splitFromEntryId }} search={listSearch}>View original entry</Link>
+						</p>
+					) : null}
+					{data.supersededAt ? (
+						<section className="panel entry-split-origin" aria-labelledby="split-origin-heading">
+							<h2 className="entry-completion-heading" id="split-origin-heading">Split original</h2>
+							<p>Split on <StockholmTime instant={data.supersededAt} />. The original is kept for history.</p>
+							{data.splitChildEntryIds?.length ? (
+								<ul className="entry-split-links">
+									{data.splitChildEntryIds.map((id, index) => (
+										<li key={id}><Link to="/entries/$entryId" params={{ entryId: id }} search={listSearch}>
+											View portion {index + 1}
+										</Link></li>
+									))}
+								</ul>
+							) : null}
+						</section>
+					) : editingEntry?.id === entryId ? (
 						<EntryEditor key={'editor:' + entryId} entry={editingEntry} onClose={() => { setEditingEntry(null); focusHeading(); }}
 							onSaved={(saved) => savedEntry(saved, 'Time entry updated.')} />
 					) : (
@@ -358,7 +384,7 @@ export function EntryDetail() {
 								onRefresh={refreshEntry} /> : null}
 						</>
 					)}
-					{editingEntry?.id !== entryId ? (
+					{!data.supersededAt && editingEntry?.id !== entryId ? (
 						<EntryInvoice key={'invoice:' + entryId} entry={data} onSaved={savedEntry} onRefresh={refreshEntry} />
 					) : null}
 					<EntryHistory key={'history:' + entryId} entryId={entryId} />

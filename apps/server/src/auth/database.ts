@@ -24,6 +24,7 @@ export async function openDatabase(url: string): Promise<PrismaClient> {
 		await database.project.findFirst({ select: { id: true } });
 		await database.entry.findFirst({ select: {
 			startAt: true, endAt: true, completion: true, invoicedAt: true, invoiceNumber: true, invoiceDate: true, invoiceReference: true, deletedAt: true,
+			supersededAt: true, splitFromEntryId: true,
 		} });
 		await database.entryDayAllocation.findFirst({ select: { entryId: true } });
 		await database.entryHistory.findFirst({ select: { id: true } });

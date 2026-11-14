@@ -10,6 +10,7 @@ import { authError, useSession } from './auth';
 import { readBulkOperation, writeBulkOperation } from './bulk-operation';
 import type { BulkOperation } from './bulk-operation';
 import { formatDuration } from './entry-display';
+import { BulkSplitReview } from './bulk-split-review';
 import { InvoiceFields, invoiceMetadata } from './invoice-fields';
 import { formatSek } from './money';
 import { operationKey } from './timer-operation';
@@ -56,7 +57,7 @@ export function WorkListBulk({ account, scope, filters, range, hasEntries, onSav
 	const [selection, setSelection] = useState<Selection>();
 	const [selectedRange, setSelectedRange] = useState<WorkListRange>();
 	const [action, setAction] = useState<Action>('mark-invoiced');
-	const [review, setReview] = useState<BulkEntryPreviewResponse>();
+	const [review, setReview] = useState<{ result: BulkEntryPreviewResponse; body: BulkEntryPreviewBody }>();
 	const [metadata, setMetadata] = useState<BulkEntryPreviewBody['metadata']>();
 	const [operation, setOperation] = useState(() => readBulkOperation(account));
 	const [busy, setBusy] = useState(false);
@@ -75,8 +76,14 @@ export function WorkListBulk({ account, scope, filters, range, hasEntries, onSav
 	const locked = busy || !!operation || !!review;
 	const count = selection?.mode === 'explicit' ? selection.entryIds.length : undefined;
 	const selectable = !!range && hasEntries;
-	const blocked = review?.entries.filter((entry) => entry.issues.length);
-	const incomplete = review?.entries.filter((entry) => entry.amountOre === null).length ?? 0;
+	const previewResult = review?.result;
+	const splitRequested = review?.body.splitOutsideRange === true;
+	const split = splitRequested && !!previewResult?.entries.some((entry) => entry.split);
+	const blocked = previewResult?.entries.filter((entry) => entry.issues.length);
+	const incomplete = previewResult?.entries.filter((entry) => entry.amountOre === null).length ?? 0;
+
+	const canReviewSplit = previewResult?.action === 'mark-invoiced' && !splitRequested && !!blocked?.length &&
+		blocked.every((entry) => entry.split && entry.issues.every((issue) => issue === 'outside-date-range'));
 
 	useLayoutEffect(() => {
 		if (activeScope.current === scope) return;
@@ -143,14 +150,17 @@ export function WorkListBulk({ account, scope, filters, range, hasEntries, onSav
 		setStale(false);
 	}
 
-	async function preview(event: SubmitEvent<HTMLFormElement>) {
+	function preview(event: SubmitEvent<HTMLFormElement>) {
 		event.preventDefault();
 		if (locked || !selection || !selectedRange || count === 0 || rangeChanged) return;
-		const version = scopeVersion.current;
-		const body: BulkEntryPreviewBody = {
+		void loadPreview({
 			action, selection, filters: { ...filters, preset: 'custom', ...selectedRange },
 			...(action === 'mark-invoiced' ? { metadata: invoiceMetadata(event.currentTarget) } : {}),
-		};
+		});
+	}
+
+	async function loadPreview(body: BulkEntryPreviewBody) {
+		const version = scopeVersion.current;
 		setBusy(true);
 		setError('');
 		setDateError('');
@@ -162,7 +172,7 @@ export function WorkListBulk({ account, scope, filters, range, hasEntries, onSav
 			if (version !== scopeVersion.current) return;
 			focusAfter.current = 'review';
 			setMetadata(body.metadata);
-			setReview(next);
+			setReview({ result: next, body });
 		} catch (cause) {
 			if (version !== scopeVersion.current) return;
 			if (cause instanceof ApiRequestError && cause.code === 'INVALID_INVOICE_DATE') {
@@ -235,7 +245,7 @@ export function WorkListBulk({ account, scope, filters, range, hasEntries, onSav
 					{operation ? (
 						<>
 							<h2 id="bulk-heading" tabIndex={-1} ref={reviewHeading}>{busy ? 'Applying bulk action…' : 'Check bulk action'}</h2>
-							<p>{actionLabels[operation.action]} · {entryCount(operation.count)}</p>
+							<p>{operation.split ? 'Split and mark as invoiced' : actionLabels[operation.action]} · {entryCount(operation.count)}</p>
 							{error ? <p className="feedback error" role="alert">{error}</p> : null}
 							{!busy ? <div className="form-actions">
 								<button type="button" className="primary" onClick={() => void commit(operation)}>Retry confirmation</button>
@@ -248,7 +258,7 @@ export function WorkListBulk({ account, scope, filters, range, hasEntries, onSav
 								? 'All matching entries selected across pages.'
 								: entryCount(count ?? 0) + ' selected.'}</p>
 							{rangeChanged ? <p className="feedback warning" role="alert">The displayed dates changed. Cancel and select entries again.</p> : null}
-							<form className="record-editor" onSubmit={(event) => void preview(event)} hidden={!!review}>
+							<form className="record-editor" onSubmit={preview} hidden={!!review}>
 								<div className="form-actions">
 									<button type="button" disabled={busy || rangeChanged || selection?.mode === 'all-matching'}
 										onClick={() => changeSelection({ mode: 'all-matching' })}>Select all matching</button>
@@ -275,14 +285,14 @@ export function WorkListBulk({ account, scope, filters, range, hasEntries, onSav
 								</div>
 							</form>
 							{error ? <p className="feedback warning" role="alert">{error}</p> : null}
-							{review ? (
+							{previewResult ? (
 								<div className="work-list-bulk-review">
-									<h3 tabIndex={-1} ref={reviewHeading}>{actionLabels[review.action]}</h3>
-									<p>Whole entries · {review.range.from} to {review.range.to}</p>
-									<dl className="entry-invoice-values" aria-label="Selected whole entry totals">
-										<div><dt>Entries</dt><dd>{review.count}</dd></div>
-										<div><dt>Duration</dt><dd>{formatDuration(review.seconds)}</dd></div>
-										<div><dt>{incomplete ? 'Known billable amount' : 'Billable amount'}</dt><dd>{formatSek(review.amountOre)}</dd></div>
+									<h3 tabIndex={-1} ref={reviewHeading}>{split ? 'Split and mark as invoiced' : actionLabels[previewResult.action]}</h3>
+									<p>{split ? 'Work dates' : 'Whole entries'} · {previewResult.range.from} to {previewResult.range.to}</p>
+									<dl className={split ? "entry-invoice-values bulk-split-totals" : "entry-invoice-values"} aria-label="Selected whole entry totals">
+										<div><dt>{split ? 'Selected entries' : 'Entries'}</dt><dd>{previewResult.count}</dd></div>
+										<div><dt>Duration</dt><dd>{formatDuration(previewResult.seconds)}</dd></div>
+										<div><dt>{incomplete ? 'Known billable amount' : 'Billable amount'}</dt><dd>{formatSek(previewResult.amountOre)}</dd></div>
 									</dl>
 									{metadata ? (
 										<dl className="entry-invoice-values" aria-label="Invoice details for the selection">
@@ -293,41 +303,52 @@ export function WorkListBulk({ account, scope, filters, range, hasEntries, onSav
 											</div> : null}
 										</dl>
 									) : null}
+									{split ? <BulkSplitReview preview={previewResult} /> : null}
 									{incomplete > 0 ? (
 										<p className="field-hint">Incomplete work has no saved billable amount.</p>
 									) : null}
 									{blocked?.length ? (
 										<>
-											<p className="feedback warning" role="status">Resolve the issues below before applying this action to the selection.</p>
+											<p className="feedback warning" role="status">{canReviewSplit
+												? 'Some entries cross the selected dates. Review a split to mark only work within the range.'
+												: 'Resolve the issues below before applying this action to the selection.'}</p>
 											<ul className="work-list-bulk-issues">
 												{blocked.map((entry) => <li key={entry.id}>
 													<strong>{entry.description || 'Untitled time entry'}</strong>
-													{' · ' + entry.issues.map((issue) => issueLabels[issue]).join(' ')}
+													{' · ' + entry.issues.map((issue) => canReviewSplit && issue === 'outside-date-range'
+														? 'Part of the entry is outside the selected dates.'
+														: issueLabels[issue]).join(' ')}
 												</li>)}
 											</ul>
 										</>
-									) : review.count === 0 ? <p className="feedback warning">No entries match this selection.</p> : null}
-									{review.count > 0 ? (
+									) : previewResult.count === 0 ? <p className="feedback warning">No entries match this selection.</p> : null}
+									{previewResult.entries.some((entry) => !split || !entry.split) ? (
 										<details>
-											<summary>View selected entries</summary>
+											<summary>{split ? 'View entries being marked in full' : 'View selected entries'}</summary>
 											<ul className="work-list-bulk-issues">
-												{review.entries.map((entry) => <li key={entry.id}>
+												{previewResult.entries.filter((entry) => !split || !entry.split).map((entry) => <li key={entry.id}>
 													{entry.description || 'Untitled time entry'} · {formatDuration(entry.seconds)}
 												</li>)}
 											</ul>
 										</details>
 									) : null}
-									{review.action === 'delete' ? <p className="field-hint">Entries in Trash can be restored for 30 days.</p> : null}
-									{review.action === 'unmark-invoiced' ? <p className="field-hint">Unmarking clears the saved invoice details in Timekeeper.</p> : null}
+									{previewResult.action === 'delete' ? <p className="field-hint">Entries in Trash can be restored for 30 days.</p> : null}
+									{previewResult.action === 'unmark-invoiced' ? <p className="field-hint">Unmarking clears the saved invoice details in Timekeeper.</p> : null}
 									<div className="form-actions">
-										{review.canCommit && review.previewToken && !stale && !rangeChanged ? (
-											<button type="button" className="primary" onClick={() => {
-												if (review.previewToken) void commit({ previewToken: review.previewToken, key: operationKey(),
-													action: review.action, count: review.count });
-											}}>Confirm {actionLabels[review.action].toLowerCase()}</button>
+										{canReviewSplit && review && !stale && !rangeChanged ? (
+											<button type="button" className="primary" disabled={busy}
+												onClick={() => void loadPreview({ ...review.body, splitOutsideRange: true })}>
+												{busy ? 'Reviewing…' : 'Review split and mark'}
+											</button>
 										) : null}
-										<button type="button" onClick={editSelection}>{stale ? 'Review again' : 'Edit selection'}</button>
-										<button type="button" onClick={closeSelection}>Cancel selection</button>
+										{previewResult.canCommit && previewResult.previewToken && !stale && !rangeChanged ? (
+											<button type="button" className="primary" disabled={busy} onClick={() => {
+												if (previewResult.previewToken) void commit({ previewToken: previewResult.previewToken, key: operationKey(),
+													action: previewResult.action, count: previewResult.count, split });
+											}}>Confirm {split ? 'split and mark' : actionLabels[previewResult.action].toLowerCase()}</button>
+										) : null}
+										<button type="button" disabled={busy} onClick={editSelection}>{stale ? 'Review again' : 'Edit selection'}</button>
+										<button type="button" disabled={busy} onClick={closeSelection}>Cancel selection</button>
 									</div>
 								</div>
 							) : null}

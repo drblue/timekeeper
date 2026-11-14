@@ -170,19 +170,21 @@ export function createEntryStore(database: PrismaClient, now: () => Date = () =>
 		},
 
 		async getEntry(accountId: string, id: string): Promise<EntryResponse> {
-			const entry = await database.$transaction((transaction) => transaction.entry.findUnique({
-				where: { id, ...activeEntryWhere(accountId) }, include: entryRelations,
-			}));
-			if (!entry) {
-				throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
-			}
-			return entryResponse(entry);
+			return database.$transaction(async (transaction) => {
+				const entry = await transaction.entry.findUnique({ where: { id, accountId, deletedAt: null }, include: entryRelations });
+				if (!entry) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
+				const response = entryResponse(entry);
+				if (!entry.supersededAt) return response;
+				const children = await transaction.entry.findMany({ where: { accountId, splitFromEntryId: id, deletedAt: null },
+					select: { id: true }, orderBy: [{ localDate: 'asc' }, { startAt: 'asc' }, { id: 'asc' }] });
+				return { ...response, splitChildEntryIds: children.map((child) => child.id) };
+			});
 		},
 
 		async listTrash(accountId: string): Promise<EntryTrashResponse> {
 			const cutoff = new Date(now().getTime() - trashRetentionMs);
 			const entries = await database.$transaction((transaction) => transaction.entry.findMany({
-				where: { accountId, deletedAt: { gt: cutoff } }, include: entryRelations,
+				where: { accountId, supersededAt: null, deletedAt: { gt: cutoff } }, include: entryRelations,
 				orderBy: [{ deletedAt: 'desc' }, { id: 'desc' }],
 			}));
 			return entries.map((entry) => trashedEntryResponse(entryResponse(entry)));
@@ -190,7 +192,7 @@ export function createEntryStore(database: PrismaClient, now: () => Date = () =>
 
 		deleteEntry(accountId: string, id: string, revision: number): Promise<TrashedEntryResponse> {
 			return writeForAccount(database, accountId, async (transaction) => {
-				const current = await transaction.entry.findUnique({ where: { id, accountId }, include: entryRelations });
+				const current = await transaction.entry.findUnique({ where: { id, accountId, supersededAt: null }, include: entryRelations });
 				if (!current) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
 				requireUninvoicedEntry(current, 'deleting');
 				checkEntryRevision(current, revision);
@@ -202,7 +204,7 @@ export function createEntryStore(database: PrismaClient, now: () => Date = () =>
 
 		restoreEntry(accountId: string, id: string, revision: number): Promise<EntryResponse> {
 			return writeForAccount(database, accountId, async (transaction) => {
-				const current = await transaction.entry.findUnique({ where: { id, accountId }, include: entryRelations });
+				const current = await transaction.entry.findUnique({ where: { id, accountId, supersededAt: null }, include: entryRelations });
 				if (!current) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
 				checkEntryRevision(current, revision);
 				if (!current.deletedAt) throw new ApiRequestError(409, 'ENTRY_NOT_DELETED', 'This time entry is no longer in the trash.');
@@ -228,7 +230,7 @@ export function createEntryStore(database: PrismaClient, now: () => Date = () =>
 
 		async getHistory(accountId: string, id: string): Promise<EntryHistoryResponse> {
 			return database.$transaction(async (transaction) => {
-				const owner = await transaction.entry.findUnique({ where: { id, ...activeEntryWhere(accountId) }, select: { id: true } });
+				const owner = await transaction.entry.findUnique({ where: { id, accountId, deletedAt: null }, select: { id: true } });
 				if (!owner) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
 				const rows = await transaction.entryHistory.findMany({ where: { entryId: id }, orderBy: [{ at: 'desc' }, { id: 'desc' }] });
 				return rows.map(({ id: historyId, action, at, beforeSnapshot, afterSnapshot }) => {

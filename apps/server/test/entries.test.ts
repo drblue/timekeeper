@@ -921,4 +921,90 @@ describe('Manual entries', () => {
 		expect((await bulkCommit(fresh.previewToken, key)).statusCode).toBe(200);
 		expect((await database.entry.findUnique({ where: { id: secondWrite } }))?.revision).toBe(2);
 	});
+
+	it('selectively invoices the one-öre allocation at midnight and retains the superseded source and exact lineage', async () => {
+		const source = await createTimedEntry({ startLocal: '2026-11-16T23:30', endLocal: '2026-11-17T00:30',
+			billable: true, rateOverrideOrePerHour: '1' });
+		await database.entryDayAllocation.update({ where: { entryId_localDate: { entryId: source.id, localDate: '2026-11-17' } },
+			data: { calculationVersion: 2 } });
+		const input: BulkEntryPreviewBody = { action: 'mark-invoiced', filters: { from: '2026-11-16', to: '2026-11-16' },
+			selection: { mode: 'explicit', entryIds: [source.id] }, metadata: { invoiceNumber: 'SE-0001' } };
+		const originalPreview = await bulkPreview(input);
+		expect(originalPreview).toMatchObject({ canCommit: false, previewToken: null, seconds: 3_600, amountOre: '1',
+			invoiceTotals: { seconds: 1_800, amountOre: '1' }, entries: [{ id: source.id, issues: ['outside-date-range'], split: { portions: [
+				{ startAt: '2026-11-16T22:30:00.000Z', endAt: '2026-11-16T23:00:00.000Z', from: '2026-11-16', to: '2026-11-16', seconds: 1_800, amountOre: '1', willInvoice: true },
+				{ startAt: '2026-11-16T23:00:00.000Z', endAt: '2026-11-16T23:30:00.000Z', from: '2026-11-17', to: '2026-11-17', seconds: 1_800, amountOre: '0', willInvoice: false },
+			] } }] });
+		const approved = await bulkPreview({ ...input, splitOutsideRange: true });
+		expect(approved).toMatchObject({ canCommit: true, entries: [{ issues: [] }] });
+		const key = randomUUID();
+		const result = await bulkCommit(approved.previewToken, key);
+		expect(result.statusCode, result.body).toBe(200);
+		const committed = parseBulkEntryCommitResponse(result.json());
+		const [insideId, outsideId] = committed.entryIds;
+		expect(committed).toMatchObject({ count: 1, splits: [{ originalEntryId: source.id, childEntryIds: [insideId, outsideId] }] });
+		expect((await bulkCommit(approved.previewToken, key)).json()).toEqual(committed);
+		const original = parseEntryResponse((await request('GET', `${entriesPath}/${source.id}`)).json());
+		expect(original).toEqual({ ...source, revision: 2, supersededAt: now, splitChildEntryIds: [insideId, outsideId] });
+		const inside = parseEntryResponse((await request('GET', `${entriesPath}/${insideId}`)).json());
+		const outside = parseEntryResponse((await request('GET', `${entriesPath}/${outsideId}`)).json());
+		expect(inside).toMatchObject({ splitFromEntryId: source.id, durationSeconds: 1_800, billableAmountOre: '1', invoicedAt: now, invoiceNumber: 'SE-0001' });
+		expect(outside).toMatchObject({ splitFromEntryId: source.id, durationSeconds: 1_800, billableAmountOre: '0', assignedRateOrePerHour: '1' });
+		expect(outside.invoicedAt).toBeUndefined();
+		expect(outside.invoiceNumber).toBeUndefined();
+		const fullRange = { from: '2026-11-16', to: '2026-11-17' };
+		expect((await readWork(fullRange)).totals).toEqual({ seconds: 3_600, amountOre: '1' });
+		expect((await readWork({ ...fullRange, invoice: 'invoiced' })).totals).toEqual({ seconds: 1_800, amountOre: '1' });
+		expect((await readWork({ ...fullRange, invoice: 'not-yet-invoiced' })).totals).toEqual({ seconds: 1_800, amountOre: '0' });
+		expect(parseEntryListResponse((await request('GET', entriesPath)).json()).map(({ id }) => id).sort()).toEqual([insideId, outsideId].sort());
+		expect(parseEntryTrashResponse((await request('GET', entryTrashPath)).json())).toEqual([]);
+		for (const [method, path, payload] of [
+			['PUT', `${entriesPath}/${source.id}`, change(original, { description: 'Locked source' })],
+			['POST', `${entriesPath}/${source.id}/delete`, { revision: 2 }],
+			['POST', `${entriesPath}/${source.id}/restore`, { revision: 2 }],
+			['POST', `${entriesPath}/${source.id}/invoice`, { revision: 2 }],
+		] as const) expect((await request(method, path, payload)).statusCode).toBe(404);
+		const originalHistory = parseEntryHistoryResponse((await request('GET', `${entriesPath}/${source.id}/history`)).json());
+		expect(originalHistory.find(({ action }) => action === 'split')).toMatchObject({ before: source, after: original });
+		const rename = await request('PUT', `${entriesPath}/${outside.id}`, change(outside, { description: 'Outside remains editable' }));
+		expect(rename.statusCode).toBe(200);
+		expect(await database.entryDayAllocation.findMany({ where: { entryId: outside.id } })).toMatchObject([{ amountOre: 0n, seconds: 1_800, calculationVersion: 2 }]);
+		const edited = parseEntryResponse(rename.json());
+		const recalculated = await request('PUT', `${entriesPath}/${outside.id}`, change(edited, { rate: { mode: 'override', rateOrePerHour: '3' } }));
+		expect(parseEntryResponse(recalculated.json())).toMatchObject({ billableAmountOre: '2', splitFromEntryId: source.id });
+		expect(await database.entryDayAllocation.findMany({ where: { entryId: outside.id } })).toMatchObject([{ amountOre: 2n, seconds: 1_800, calculationVersion: 1 }]);
+	});
+
+	it('splits both DST boundaries without zero-day children and rolls back all split writes on failure', async () => {
+		const source = await createTimedEntry({ startLocal: '2026-10-24T23:30', endLocal: '2026-10-27T00:00',
+			billable: true, rateOverrideOrePerHour: '1' });
+		const input: BulkEntryPreviewBody = { action: 'mark-invoiced', filters: { from: '2026-10-25', to: '2026-10-25' },
+			selection: { mode: 'all-matching' }, splitOutsideRange: true };
+		const stale = await bulkPreview(input);
+		expect((await request('PUT', `${entriesPath}/${source.id}`, change(source, { description: 'Stale split preview' }))).statusCode).toBe(200);
+		expect((await bulkCommit(stale.previewToken)).json()).toMatchObject({ code: 'BULK_PREVIEW_CHANGED' });
+		const approved = await bulkPreview(input);
+		expect(approved.entries[0]?.split?.portions).toMatchObject([
+			{ from: '2026-10-24', to: '2026-10-24', seconds: 1_800, willInvoice: false },
+			{ from: '2026-10-25', to: '2026-10-25', seconds: 90_000, willInvoice: true },
+			{ from: '2026-10-26', to: '2026-10-26', seconds: 86_400, willInvoice: false },
+		]);
+		await database.$executeRaw`CREATE TRIGGER "test_split_fail_mark" BEFORE INSERT ON "EntryHistory"
+			WHEN NEW."action" = 'invoice-marked' BEGIN SELECT RAISE(ABORT, 'Test split history failure'); END`;
+		const key = randomUUID();
+		expect((await bulkCommit(approved.previewToken, key)).statusCode).toBe(500);
+		expect(await database.entry.count()).toBe(1);
+		expect((await database.entry.findUniqueOrThrow({ where: { id: source.id } })).supersededAt).toBeNull();
+		expect(await database.entryHistory.count({ where: { action: { in: ['split', 'created-from-split', 'invoice-marked'] } } })).toBe(0);
+		expect(await database.operationReceipt.count()).toBe(0);
+		await database.$executeRaw`DROP TRIGGER "test_split_fail_mark"`;
+		const committed = await bulkCommit(approved.previewToken, key);
+		expect(committed.statusCode).toBe(200);
+		const children = await database.entry.findMany({ where: { splitFromEntryId: source.id }, orderBy: { startAt: 'asc' } });
+		expect(children).toHaveLength(3);
+		expect(children[1]?.invoicedAt).toEqual(new Date(now));
+		expect(children.filter(({ invoicedAt }) => invoicedAt === null)).toHaveLength(2);
+		expect(children.reduce((sum, { durationSeconds }) => sum + durationSeconds, 0)).toBe(source.durationSeconds);
+		expect(children.reduce((sum, { billableAmountOre }) => sum + (billableAmountOre ?? 0n), 0n).toString()).toBe(source.billableAmountOre);
+	});
 });

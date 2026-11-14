@@ -7,13 +7,13 @@ import type { WorkSettings } from './work-settings.ts';
 
 export const entryRelations = {
 	...workRelations,
-	allocations: { orderBy: { localDate: 'asc' }, select: { localDate: true, seconds: true, amountOre: true } },
+	allocations: { orderBy: { localDate: 'asc' }, select: { localDate: true, seconds: true, amountOre: true, calculationVersion: true } },
 } as const;
 
 export type EntryWithRelations = Prisma.EntryGetPayload<{ include: typeof entryRelations }>;
 
 export function activeEntryWhere(accountId: string) {
-	return { accountId, deletedAt: null } satisfies Prisma.EntryWhereInput;
+	return { accountId, deletedAt: null, supersededAt: null } satisfies Prisma.EntryWhereInput;
 }
 
 export function checkEntryRevision(current: { revision: number }, revision: number) {
@@ -35,6 +35,8 @@ export function entryResponse(entry: EntryWithRelations): EntryResponse {
 		...(entry.invoiceDate !== null ? { invoiceDate: entry.invoiceDate } : {}),
 		...(entry.invoiceReference !== null ? { invoiceReference: entry.invoiceReference } : {}),
 		...(entry.deletedAt ? { deletedAt: entry.deletedAt.toISOString() } : {}),
+		...(entry.supersededAt ? { supersededAt: entry.supersededAt.toISOString() } : {}),
+		...(entry.splitFromEntryId ? { splitFromEntryId: entry.splitFromEntryId } : {}),
 	};
 	if (entry.kind === 'duration-only' && entry.completion === 'complete' && entry.billableAmountOre !== null) {
 		return { kind: entry.kind, completion: 'complete', ...fields, billableAmountOre: entry.billableAmountOre.toString() };

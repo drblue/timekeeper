@@ -96,6 +96,10 @@ model Entry {
 	invoiceDate            String?
 	invoiceReference       String?
 	deletedAt              DateTime?
+	supersededAt           DateTime?
+	splitFromEntryId       String?
+	splitFrom              Entry?               @relation("EntrySplit", fields: [accountId, splitFromEntryId], references: [accountId, id], onDelete: Restrict)
+	splitChildren          Entry[]              @relation("EntrySplit")
 	revision               Int                  @default(1)
 	createdAt              DateTime             @default(now())
 	allocations            EntryDayAllocation[]
@@ -107,6 +111,8 @@ model Entry {
 	@@index([accountId, startAt, endAt])
 	@@index([accountId, invoicedAt])
 	@@index([accountId, deletedAt])
+	@@unique([accountId, id])
+	@@index([accountId, splitFromEntryId])
 }
 
 model EntryDayAllocation {

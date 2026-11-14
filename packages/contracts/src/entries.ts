@@ -68,6 +68,9 @@ const entryOutput = {
 	invoiceDate: Type.Optional(EntryLocalDate),
 	invoiceReference: Type.Optional(Type.String()),
 	deletedAt: Type.Optional(Timestamp),
+	supersededAt: Type.Optional(Timestamp),
+	splitFromEntryId: Type.Optional(Uuid),
+	splitChildEntryIds: Type.Optional(Type.Array(Uuid)),
 };
 
 export const DurationEntryResponse = Type.Object({
@@ -130,6 +133,7 @@ export const EntryEditPreview = Type.Object({
 export const EntryHistoryAction = Type.Union([
 	Type.Literal('created'), Type.Literal('completed'), Type.Literal('edited'), Type.Literal('deleted'), Type.Literal('restored'),
 	Type.Literal('invoice-marked'), Type.Literal('invoice-unmarked'), Type.Literal('invoice-metadata-updated'),
+	Type.Literal('split'), Type.Literal('created-from-split'),
 ]);
 export const EntryHistoryResponse = Type.Array(Type.Object({
 	id: Uuid,

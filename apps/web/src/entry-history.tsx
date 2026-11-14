@@ -18,6 +18,8 @@ const historyActionLabels = {
 	'invoice-marked': 'Marked as invoiced',
 	'invoice-unmarked': 'Unmarked invoice',
 	'invoice-metadata-updated': 'Updated invoice details',
+	split: 'Split for invoicing',
+	'created-from-split': 'Created from split',
 } as const;
 
 interface HistoryValue {
@@ -40,7 +42,7 @@ function values(entry: EntryResponse): HistoryValue[] {
 		{ label: 'Hourly rate', value: entry.assignedRateOrePerHour === null ? 'No rate' : `${formatSek(entry.assignedRateOrePerHour)}/hour` },
 		{ label: 'Billable amount', value: entry.billableAmountOre === null ? 'Incomplete' : formatSek(entry.billableAmountOre) },
 		{ label: 'Status', value: entry.completion === 'complete' ? 'Complete' : 'Incomplete' },
-		{ label: 'Location', value: entry.deletedAt ? 'Trash' : 'Time entries' },
+		{ label: 'Location', value: entry.supersededAt ? 'Split original' : entry.deletedAt ? 'Trash' : 'Time entries' },
 		{ label: 'Invoice status', value: entry.invoicedAt ? 'Invoiced' : 'Unmarked' },
 		{ label: 'Invoice number', value: entry.invoiceNumber ?? '—' },
 		{ label: 'Invoice date', value: entry.invoiceDate ?? '—' },

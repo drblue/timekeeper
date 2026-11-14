@@ -10,6 +10,7 @@ import { activeEntryWhere, entryRelations } from './entry-record.ts';
 import type { EntryWithRelations } from './entry-record.ts';
 import { invoiceMetadata, writeInvoiceChange } from './invoicing.ts';
 import type { InvoiceMetadata } from './invoicing.ts';
+import { planEntrySplit, splitPreview, writeEntrySplit } from './split-entry.ts';
 import { readCompletedWork, readIncompleteWork, resolveWorkScope, totalWork, workDateRange } from './work-scope.ts';
 
 const previewLifetimeMs = 15 * 60 * 1_000;
@@ -25,6 +26,7 @@ interface PreviewSnapshot {
 	filters: SelectionFilters;
 	selection: Selection;
 	metadata: InvoiceMetadata | null;
+	splitOutsideRange?: boolean;
 	versions: { id: string; revision: number }[];
 }
 
@@ -36,23 +38,28 @@ function selectionFilters({ clientId, projectId, invoice, billability, descripti
 	return { clientId, projectId, invoice, billability, description: description?.trim(), invoiceNumber: invoiceNumber?.trim() };
 }
 
-function previewItem(entry: EntryWithRelations, action: BulkAction, range: WorkListRange, inSelection: boolean): PreviewItem {
+function previewItem(entry: EntryWithRelations, action: BulkAction, range: WorkListRange, inSelection: boolean, splitOutsideRange: boolean) {
 	const issues: PreviewItem['issues'] = [];
+	let portions: ReturnType<typeof planEntrySplit> | undefined;
 	if (!inSelection) issues.push('outside-selection');
 	if (action === 'mark-invoiced') {
 		if (entry.completion !== 'complete') issues.push('not-completed');
 		if (!entry.billable) issues.push('non-billable');
 		if (entry.invoicedAt) issues.push('already-invoiced');
-		if (entry.allocations.some(({ localDate }) => localDate < range.from || localDate > range.to)) issues.push('outside-date-range');
+		if (entry.allocations.some(({ localDate }) => localDate < range.from || localDate > range.to)) {
+			if (issues.length === 0) portions = planEntrySplit(entry, range);
+			if (!portions || !splitOutsideRange) issues.push('outside-date-range');
+		}
 	} else if (action === 'unmark-invoiced' && !entry.invoicedAt) {
 		issues.push('not-invoiced');
 	} else if (action === 'delete' && entry.invoicedAt) {
 		issues.push('invoiced-delete');
 	}
-	return {
+	const item: PreviewItem = {
 		id: entry.id, revision: entry.revision, description: entry.description, seconds: entry.durationSeconds,
-		amountOre: entry.billableAmountOre?.toString() ?? null, issues,
+		amountOre: entry.billableAmountOre?.toString() ?? null, issues, ...(portions ? { split: splitPreview(portions) } : {}),
 	};
+	return { item, portions };
 }
 
 async function resolveSelection(
@@ -80,22 +87,32 @@ export function createBulkEntryStore(database: PrismaClient, now: () => Date) {
 			const range = workDateRange(input.filters, at.toISOString());
 			const filters = selectionFilters(input.filters);
 			const { action } = input;
+			const splitOutsideRange = input.splitOutsideRange === true;
 			const selection: Selection = input.selection.mode === 'explicit'
 				? { mode: 'explicit', entryIds: [...new Set(input.selection.entryIds)].sort() }
 				: input.selection;
 			if (input.metadata && action !== 'mark-invoiced') {
 				throw new ApiRequestError(422, 'INVALID_BULK_SELECTION', 'Invoice metadata only applies when marking work as invoiced.');
 			}
+			if (splitOutsideRange && action !== 'mark-invoiced') {
+				throw new ApiRequestError(422, 'INVALID_BULK_SELECTION', 'Splitting outside the date range only applies when marking work as invoiced.');
+			}
 			const metadata = action === 'mark-invoiced' ? invoiceMetadata(input.metadata ?? {}) : null;
 			const resolved = await database.$transaction((transaction) => resolveSelection(transaction, accountId, range, filters, selection));
 			const { entries, matchingIds } = resolved;
-			const items = entries.map((entry) => previewItem(entry, action, range, matchingIds.has(entry.id)));
+			const plans = entries.map((entry) => ({ entry, ...previewItem(entry, action, range, matchingIds.has(entry.id), splitOutsideRange) }));
+			const items = plans.map(({ item }) => item);
 			const totals = totalWork(entries.map(({ durationSeconds, billableAmountOre }) =>
 				({ seconds: durationSeconds, amountOre: billableAmountOre })));
 			const canCommit = items.length > 0 && items.every(({ issues }) => issues.length === 0);
+			const invoiceTotals = action === 'mark-invoiced' ? totalWork(plans.flatMap(({ entry, item, portions }) => {
+				if (portions) return portions.filter(({ willInvoice }) => willInvoice);
+				if (item.issues.length) return [];
+				return [{ seconds: item.seconds, amountOre: entry.billableAmountOre }];
+			})) : null;
 			const previewToken = canCommit ? randomUUID() : null;
 			if (previewToken) {
-				const snapshot: PreviewSnapshot = { version: 1, action, range, filters, selection, metadata,
+				const snapshot: PreviewSnapshot = { version: 1, action, range, filters, selection, metadata, splitOutsideRange,
 					versions: entries.map(({ id, revision }) => ({ id, revision })) };
 				await writeForAccount(database, accountId, async (transaction) => {
 					const expired = await transaction.bulkEntryPreview.findMany({
@@ -108,7 +125,8 @@ export function createBulkEntryStore(database: PrismaClient, now: () => Date) {
 				});
 			}
 			return { action, range, count: items.length, seconds: totals.seconds, amountOre: totals.amountOre.toString(),
-				entries: items, canCommit, previewToken };
+				entries: items, canCommit, previewToken,
+				...(invoiceTotals ? { invoiceTotals: { seconds: invoiceTotals.seconds, amountOre: invoiceTotals.amountOre.toString() } } : {}) };
 		},
 
 		commitBulkEntries(accountId: string, key: string, token: string): Promise<BulkEntryCommitResponse> {
@@ -120,17 +138,22 @@ export function createBulkEntryStore(database: PrismaClient, now: () => Date) {
 				if (at >= stored.expiresAt) throw new ApiRequestError(409, 'BULK_PREVIEW_EXPIRED', 'This preview expired. Review the selected work again.');
 				const snapshot = JSON.parse(stored.snapshot) as PreviewSnapshot;
 				if (snapshot.version !== 1) throw new Error('Invalid bulk preview version');
-				const { action, range, filters, selection, metadata, versions } = snapshot;
+				const { action, range, filters, selection, metadata, versions, splitOutsideRange = false } = snapshot;
 				const { entries, matchingIds } = await resolveSelection(transaction, accountId, range, filters, selection).catch((error: unknown) => {
 					if (error instanceof ApiRequestError) stalePreview();
 					throw error;
 				});
-				if (entries.length !== versions.length || entries.some((entry, index) => {
+				if (entries.length !== versions.length) stalePreview();
+				const plans = entries.map((entry, index) => {
 					const approved = versions[index];
-					return entry.id !== approved?.id || entry.revision !== approved.revision
-						|| previewItem(entry, action, range, matchingIds.has(entry.id)).issues.length > 0;
-				})) stalePreview();
-				for (const entry of entries) {
+					if (entry.id !== approved?.id || entry.revision !== approved.revision) stalePreview();
+					const { item, portions } = previewItem(entry, action, range, matchingIds.has(entry.id), splitOutsideRange);
+					if (item.issues.length > 0) stalePreview();
+					return { entry, portions };
+				});
+				const entryIds: string[] = [];
+				const splits: NonNullable<BulkEntryCommitResponse['splits']> = [];
+				for (const { entry, portions } of plans) {
 					if (action === 'delete') {
 						requireUninvoicedEntry(entry, 'deleting');
 						await changeEntryDeletion(transaction, entry, at, at, key);
@@ -138,11 +161,18 @@ export function createBulkEntryStore(database: PrismaClient, now: () => Date) {
 						await writeInvoiceChange(transaction, entry, { action: 'invoice-unmarked' }, at, key);
 					} else {
 						if (!metadata) throw new Error('Missing bulk invoice metadata');
+						if (portions) {
+							const split = await writeEntrySplit(transaction, entry, portions, metadata, at, key);
+							splits.push(split);
+							entryIds.push(...split.childEntryIds);
+							continue;
+						}
 						await writeInvoiceChange(transaction, entry, { action: 'invoice-marked', metadata }, at, key);
 					}
+					entryIds.push(entry.id);
 				}
 				await transaction.bulkEntryPreview.update({ where: { id: token, accountId }, data: { consumedAt: at } });
-				return { action, count: entries.length, entryIds: entries.map(({ id }) => id), serverNow: at.toISOString() };
+				return { action, count: entries.length, entryIds, serverNow: at.toISOString(), ...(splits.length ? { splits } : {}) };
 			});
 		},
 	};

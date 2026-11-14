@@ -14,7 +14,7 @@ export async function changeEntryDeletion(
 ): Promise<EntryResponse> {
 	const { id, accountId, revision } = current;
 	const updated = await transaction.entry.update({
-		where: { id, accountId, revision, deletedAt: current.deletedAt, ...(deletedAt ? { invoicedAt: null } : {}) },
+		where: { id, accountId, revision, supersededAt: null, deletedAt: current.deletedAt, ...(deletedAt ? { invoicedAt: null } : {}) },
 		data: { deletedAt, revision: { increment: 1 } }, include: entryRelations,
 	});
 	const response = entryResponse(updated);

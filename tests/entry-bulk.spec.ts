@@ -198,3 +198,94 @@ test('discards a preview received after the matching filters change', async ({ p
 	await expect(bulk).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Confirm mark as invoiced' })).toHaveCount(0);
 });
+
+test('reviews an overnight split, preserves one öre, and links both portions to the original', async ({ page }) => {
+	const headers = await signIn(page);
+	const response = await page.request.post(entriesPath, {
+		headers, data: {
+			...billing, kind: 'timed', description: 'Split December one öre', startLocal: '2026-12-08T23:30:00',
+			endLocal: '2026-12-09T00:30:00', rateOverrideOrePerHour: '1',
+		},
+	});
+	expect(response.status()).toBe(201);
+	const original = parseEntryResponse(await response.json());
+	const detail = entriesPath + '/' + original.id;
+	await page.goto('/entries?preset=custom&from=2026-12-09&to=2026-12-09&description=Split+December');
+	const select = page.getByRole('button', { name: 'Select entries', exact: true });
+	const bulk = page.getByRole('region', { name: 'Select time entries' });
+	async function reviewSplit() {
+		await select.click();
+		await page.getByRole('checkbox', { name: /Select Split December/ }).check();
+		await bulk.getByLabel('Invoice number (optional)').fill('000015');
+		await bulk.getByRole('button', { name: 'Review selection' }).click();
+		await expect(bulk.getByRole('button', { name: 'Confirm mark as invoiced' })).toHaveCount(0);
+		const review = bulk.getByRole('button', { name: 'Review split and mark' });
+		await expect(review).toBeEnabled();
+		await review.press('Enter');
+		await expect(bulk.getByRole('heading', { name: 'Split and mark as invoiced' })).toBeFocused();
+	}
+	await reviewSplit();
+	const totals = bulk.getByLabel('Work to be marked as invoiced');
+	await expect(totals).toContainText(/30 min/);
+	await expect(totals).toContainText(/0,00\sSEK/);
+	await expect(bulk.getByLabel('Selected whole entry totals')).toContainText(/0,01\sSEK/);
+	const inside = bulk.getByRole('listitem').filter({ has: page.getByText('Mark as invoiced', { exact: true }) });
+	const outside = bulk.getByRole('listitem').filter({ has: page.getByText('Keep uninvoiced', { exact: true }) });
+	await expect(inside).toContainText(/2026-12-09 00:00.*2026-12-09 00:30/);
+	await expect(inside).toContainText(/0,00\sSEK/);
+	await expect(outside).toContainText(/2026-12-08 23:30.*2026-12-09 00:00/);
+	await expect(outside).toContainText(/0,01\sSEK/);
+	await expect(bulk.getByLabel('Invoice details for the selection')).toContainText('000015');
+	expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+	await bulk.getByRole('button', { name: 'Cancel selection' }).click();
+	await expect(select).toBeFocused();
+	expect(parseEntryResponse(await (await page.request.get(detail)).json())).toEqual(original);
+
+	await reviewSplit();
+	const changed = await page.request.put(detail, { headers, data: {
+		revision: original.revision, projectId: null, directClientId: null,
+		description: 'Split December one öre revised', billable: true,
+	} });
+	expect(changed.status()).toBe(200);
+	await bulk.getByRole('button', { name: 'Confirm split and mark' }).click();
+	await expect(bulk.getByText(/The selected work changed/)).toBeVisible();
+	expect(parseEntryResponse(await (await page.request.get(detail)).json()).supersededAt).toBeUndefined();
+	await bulk.getByRole('button', { name: 'Review again' }).click();
+	await expect(bulk.getByLabel('Invoice number (optional)')).toHaveValue('000015');
+	await bulk.getByRole('button', { name: 'Review selection' }).click();
+	await bulk.getByRole('button', { name: 'Review split and mark' }).click();
+
+	const commits: { key: string | undefined; body: unknown }[] = [];
+	await page.route(bulkEntryCommitPath, async (route) => {
+		commits.push({ key: route.request().headers()[idempotencyKeyHeader], body: route.request().postDataJSON() });
+		if (commits.length > 1) return route.continue();
+		expect((await route.fetch()).status()).toBe(200);
+		await route.abort();
+	});
+	await bulk.getByRole('button', { name: 'Confirm split and mark' }).click();
+	await expect(page.getByText(/Could not confirm the bulk action/)).toBeVisible();
+	await page.reload();
+	const retry = page.getByRole('region', { name: 'Check bulk action' });
+	await expect(retry.getByText(/Split and mark as invoiced/)).toBeVisible();
+	await retry.getByRole('button', { name: 'Retry confirmation' }).click();
+	await expect(page.getByText('1 entry split. Work within the selected dates marked as invoiced.')).toBeVisible();
+	expect(commits[0]?.key).toBeTruthy();
+	expect(commits).toEqual([commits[0], commits[0]]);
+
+	const savedOriginal = parseEntryResponse(await (await page.request.get(detail)).json());
+	expect(savedOriginal.supersededAt).toBeTruthy();
+	expect(savedOriginal.splitChildEntryIds).toHaveLength(2);
+	const matchingChild = page.getByRole('link', { name: 'Split December one öre revised' });
+	await expect(page.getByRole('article').filter({ has: matchingChild })).toContainText('Invoiced · 000015');
+	await matchingChild.click();
+	await page.getByRole('button', { name: 'Show history' }).click();
+	await expect(page.getByRole('heading', { name: 'Created from split' })).toBeVisible();
+	await page.getByRole('link', { name: 'View original entry' }).click();
+	await expect(page.getByRole('heading', { name: 'Split original' })).toBeVisible();
+	await expect(page.getByRole('button', { name: /^(Edit entry|Continue|Move to Trash|Mark as invoiced)/ })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Show history' }).click();
+	await expect(page.getByRole('heading', { name: 'Split for invoicing' })).toBeVisible();
+	await page.getByRole('link', { name: 'View portion 1' }).click();
+	await expect(page.getByRole('region', { name: 'Invoice', exact: true })).toContainText('Not yet invoiced');
+	await expect(page.getByText('0,01 SEK', { exact: true })).toBeVisible();
+});

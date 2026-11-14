@@ -4,6 +4,7 @@ export interface BulkOperation extends BulkEntryCommitBody {
 	key: string;
 	action: BulkEntryPreviewBody['action'];
 	count: number;
+	split?: boolean;
 }
 
 const storageKey = 'timekeeper.bulk-operation';
