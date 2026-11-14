@@ -10,7 +10,7 @@ import type { EntryDaySegment } from './timed-entry.ts';
 import { billingDefaults, resolveWorkSettings, validateWorkAssociation, workDescription } from './work-settings.ts';
 import type { WorkSettings } from './work-settings.ts';
 import { createWorkList } from './work-list.ts';
-import { activeEntryWhere, checkEntryRevision, entryBilling, entryRelations, entryResponse, requireCompleteAmount } from './entry-record.ts';
+import { activeEntryWhere, allocationCalculationVersion, checkEntryRevision, entryBilling, entryRelations, entryResponse, requireCompleteAmount } from './entry-record.ts';
 import type { EntryWithRelations } from './entry-record.ts';
 import { readHistorySnapshot, recordHistory } from './entry-history.ts';
 import { reclaimRestoredClockifyIdentity } from '../imports/clockify-identity.ts';
@@ -19,7 +19,6 @@ import { createEntryInvoiceStore } from './invoicing.ts';
 import { createBulkEntryStore } from './bulk.ts';
 import { changeEntryDeletion, requireUninvoicedEntry } from './entry-deletion.ts';
 
-const allocationCalculationVersion = 1;
 const trashRetentionMs = 30 * 24 * 60 * 60 * 1_000;
 function entryTime(input: EntryEditTime): EntryTime {
 	if (input.kind === 'timed') return manualTimedInterval(input);

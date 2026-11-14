@@ -98,6 +98,7 @@ export function Entries() {
 	const movedToTrash = useLocation({ select: ({ state }) => state.entryMovedToTrash === true });
 	const reportReturned = useLocation({ select: ({ state }) => state.reportPreviewReturned === true });
 	const inspectionReturned = useLocation({ select: ({ state }) => state.clockifyInspectionReturned === true });
+	const exportsReturned = useLocation({ select: ({ state }) => state.exportsReturned === true });
 	const search = effectiveWorkListSearch(location);
 	const filterKey = workListQueryString(search);
 	const positionKey = (session.account?.email ?? '') + '\n' + workListQueryString(unpinWorkListSearch(location));
@@ -114,12 +115,13 @@ export function Entries() {
 	const editorTrigger = useRef<HTMLButtonElement>(null);
 	const reportTrigger = useRef<HTMLAnchorElement>(null);
 	const inspectionTrigger = useRef<HTMLAnchorElement>(null);
+	const exportsTrigger = useRef<HTMLAnchorElement>(null);
 	const results = useRef<HTMLHeadingElement>(null);
 	const heading = useRef<HTMLHeadingElement>(null);
 	const restored = useRef<string | null>(null);
 	const pageFocus = useRef(false);
 	const data = entries.data;
-	const inspectionBack = { ...location, returnRow: undefined, returnOffset: undefined,
+	const listReturn = { ...location, returnRow: undefined, returnOffset: undefined,
 		returnFrom: data?.range.from ?? location.returnFrom, returnTo: data?.range.to ?? location.returnTo };
 
 	function closeEditor() {
@@ -163,6 +165,10 @@ export function Entries() {
 			inspectionTrigger.current?.focus();
 			return;
 		}
+		if (exportsReturned) {
+			(exportsTrigger.current ?? heading.current)?.focus();
+			return;
+		}
 		if (reportReturned) {
 			(reportTrigger.current ?? heading.current)?.focus();
 			return;
@@ -187,7 +193,7 @@ export function Entries() {
 		const offset = remembered?.returnOffset ?? location.returnOffset ?? 0;
 		row.querySelector('a')?.focus({ preventScroll: true });
 		window.scrollBy(0, row.getBoundingClientRect().top - offset);
-	}, [data, entries.isError, entries.isFetching, filterKey, location.returnOffset, location.returnRow, movedToTrash, positionKey, reportReturned, inspectionReturned]);
+	}, [data, entries.isError, entries.isFetching, filterKey, location.returnOffset, location.returnRow, movedToTrash, positionKey, reportReturned, inspectionReturned, exportsReturned]);
 
 	const showPaging = data && data.totalPages > 1;
 	const { page: _page, sort: _sort, ...bulkFilters } = search;
@@ -215,7 +221,8 @@ export function Entries() {
 				{data && !entries.isError ? (
 					<Link className="action-link" ref={reportTrigger} to="/reports/preview" search={reportFromWorkList(location, data.range)}>Report preview</Link>
 				) : null}
-				<Link className="action-link" ref={inspectionTrigger} to="/imports/clockify" search={inspectionBack}>Import Clockify CSV</Link>
+				<Link className="action-link" ref={inspectionTrigger} to="/imports/clockify" search={listReturn}>Import Clockify CSV</Link>
+				<Link className="action-link" ref={exportsTrigger} to="/exports" search={listReturn}>Exports</Link>
 			</div>
 			<WorkListBulk scope={bulkScope} account={session.account?.email ?? ''} filters={bulkFilters} range={data?.range}
 				hasEntries={!!data && !entries.isError && data.totalRows + data.incomplete.length > 0} onSaved={bulkSaved}>

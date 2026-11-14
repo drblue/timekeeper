@@ -5,6 +5,8 @@ import type { Prisma } from '../generated/prisma/client.ts';
 import { workAssociation, workRelations } from './work-settings.ts';
 import type { WorkSettings } from './work-settings.ts';
 
+export const allocationCalculationVersion = 1;
+
 export const entryRelations = {
 	...workRelations,
 	allocations: { orderBy: { localDate: 'asc' }, select: { localDate: true, seconds: true, amountOre: true, calculationVersion: true } },

@@ -14,8 +14,9 @@ const clockifySpecs = '**/clockify-inspection.spec.ts';
 const clockifyDuplicateSpecs = '**/clockify-duplicates.spec.ts';
 const clockifyCorrectionSpecs = '**/clockify-corrections.spec.ts';
 const clockifyUndoSpecs = '**/clockify-undo.spec.ts';
+const exportSpecs = '**/exports.spec.ts';
 const suites = [
-	{ prefix: '', firstPort: 4317, filter: { testIgnore: [catalogSpecs, entrySpecs, transitionSpecs, correctionSpecs, workListSpecs, trashSpecs, invoiceSpecs, bulkSpecs, reportSpecs, clockifySpecs, clockifyDuplicateSpecs, clockifyCorrectionSpecs, clockifyUndoSpecs] } },
+	{ prefix: '', firstPort: 4317, filter: { testIgnore: [catalogSpecs, entrySpecs, transitionSpecs, correctionSpecs, workListSpecs, trashSpecs, invoiceSpecs, bulkSpecs, reportSpecs, clockifySpecs, clockifyDuplicateSpecs, clockifyCorrectionSpecs, clockifyUndoSpecs, exportSpecs] } },
 	{ prefix: 'catalog-', firstPort: 4319, filter: { testMatch: catalogSpecs } },
 	{ prefix: 'entries-', firstPort: 4321, filter: { testMatch: entrySpecs } },
 	{ prefix: 'transitions-', firstPort: 4323, filter: { testMatch: transitionSpecs } },
@@ -29,6 +30,7 @@ const suites = [
 	{ prefix: 'clockify-duplicates-', firstPort: 4339, filter: { testMatch: clockifyDuplicateSpecs } },
 	{ prefix: 'clockify-corrections-', firstPort: 4341, filter: { testMatch: clockifyCorrectionSpecs } },
 	{ prefix: 'clockify-undo-', firstPort: 4343, filter: { testMatch: clockifyUndoSpecs } },
+	{ prefix: 'exports-', firstPort: 4345, filter: { testMatch: exportSpecs } },
 ];
 const viewports = [
 	{ name: 'desktop', use: { viewport: { width: 1280, height: 800 } } },

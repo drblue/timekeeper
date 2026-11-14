@@ -43,6 +43,7 @@ try {
 		catalog: createCatalogStore(database),
 		clockifyImport: createClockifyImportStore(database),
 		entries: createEntryStore(database),
+		exportDatabase: database,
 		reportPreview: createReportPreview(database),
 		reportJobs,
 		reportSettings: createReportSettings(database),

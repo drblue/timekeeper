@@ -3,11 +3,7 @@ import type { WorkListQuery, WorkListResponse } from '@timekeeper/contracts';
 import { ApiRequestError } from '../api-error.ts';
 import type { PrismaClient } from '../generated/prisma/client.ts';
 import { activeEntryWhere, entryRelations, entryResponse } from './entry-record.ts';
-import { readCompletedWork, readIncompleteWork, resolveWorkScope, totalWork, workDateRange } from './work-scope.ts';
-
-function compareText(left: string, right: string) {
-	return left < right ? -1 : left > right ? 1 : 0;
-}
+import { compareWorkRows, readCompletedWork, readIncompleteWork, resolveWorkScope, totalWork, workDateRange } from './work-scope.ts';
 
 export function createWorkList(database: PrismaClient, now: () => Date = () => new Date()) {
 	return async function getWorkList(accountId: string, query: WorkListQuery): Promise<WorkListResponse> {
@@ -23,11 +19,7 @@ export function createWorkList(database: PrismaClient, now: () => Date = () => n
 			const totals = totalWork(rows);
 			const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
 			const page = Math.min(requestedPage, totalPages);
-			rows.sort((left, right) => direction * (
-				compareText(left.localDate, right.localDate)
-				|| (left.entry.startAt ?? left.entry.createdAt).getTime() - (right.entry.startAt ?? right.entry.createdAt).getTime()
-				|| compareText(left.entryId, right.entryId)
-			));
+			rows.sort((left, right) => direction * compareWorkRows(left, right));
 			const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
 			const ids = [...new Set(pageRows.map(({ entryId }) => entryId))];
 			const pageEntries = ids.length ? await transaction.entry.findMany({ where: { ...activeEntryWhere(accountId), id: { in: ids } }, include: entryRelations }) : [];

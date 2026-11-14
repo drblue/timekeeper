@@ -15,6 +15,8 @@ import type { AuthOptions } from './auth/routes.ts';
 import { registerCatalog } from './catalog/routes.ts';
 import type { CatalogStore } from './catalog/store.ts';
 import { registerEntries } from './entries/routes.ts';
+import { registerExports } from './exports/routes.ts';
+import type { PrismaClient } from './generated/prisma/client.ts';
 import type { EntryStore } from './entries/store.ts';
 import type { createClockifyImportStore } from './imports/clockify-store.ts';
 import { registerClockifyImport } from './imports/routes.ts';
@@ -31,6 +33,7 @@ interface AppOptions {
 	auth?: AuthOptions;
 	catalog?: CatalogStore;
 	entries?: EntryStore;
+	exportDatabase?: PrismaClient;
 	clockifyImport?: ReturnType<typeof createClockifyImportStore>;
 	reportPreview?: ReturnType<typeof createReportPreview>;
 	reportJobs?: Awaited<ReturnType<typeof createReportJobs>>;
@@ -38,7 +41,7 @@ interface AppOptions {
 	timer?: TimerStore;
 }
 
-export async function createApp({ webRoot, logger = false, auth, catalog, entries, timer, reportPreview, reportSettings, reportJobs, clockifyImport }: AppOptions = {}) {
+export async function createApp({ webRoot, logger = false, auth, catalog, entries, timer, reportPreview, reportSettings, reportJobs, clockifyImport, exportDatabase }: AppOptions = {}) {
 	if (webRoot) {
 		await access(resolve(webRoot, 'index.html'));
 	}
@@ -151,6 +154,7 @@ export async function createApp({ webRoot, logger = false, auth, catalog, entrie
 
 	await registerAccountAccess(app, auth);
 	await registerClockifyImport(app, clockifyImport);
+	if (exportDatabase) registerExports(app, exportDatabase);
 	if (catalog) {
 		registerCatalog(app, catalog);
 	}
@@ -208,7 +212,7 @@ export async function createApp({ webRoot, logger = false, auth, catalog, entrie
 				immutable: true,
 			});
 
-			for (const path of ['/', '/login', '/password', '/clients', '/projects', '/entries', '/entries/trash', '/entries/:entryId', '/reports/preview', '/settings/report', '/imports/clockify', '/imports/clockify/history']) {
+			for (const path of ['/', '/login', '/password', '/clients', '/projects', '/entries', '/entries/trash', '/entries/:entryId', '/reports/preview', '/settings/report', '/imports/clockify', '/imports/clockify/history', '/exports']) {
 				web.get(path, { schema: { hide: true } }, (_request, reply) => {
 					return reply.header('Cache-Control', 'no-cache').sendFile('index.html', webRoot, { cacheControl: false });
 				});
