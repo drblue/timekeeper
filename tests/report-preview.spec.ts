@@ -256,6 +256,19 @@ test('downloads the generated PDF for its original scope after report filters ch
 	const saved = parseEntryResponse(await (await page.request.get(entriesPath + '/' + entry.id)).json());
 	expect(saved.invoicedAt).toBeUndefined();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+
+	const unexpectedDownloads: string[] = [];
+	page.on('download', (file) => unexpectedDownloads.push(file.suggestedFilename()));
+	await page.route('**' + downloadPath, (route) => route.fulfill({
+		status: 410, json: { code: 'REPORT_EXPIRED', message: 'The PDF download has expired.' },
+	}));
+	await downloadLink.click();
+	await expect(page).toHaveURL(new URL(downloadPath, page.url()).href);
+	await expect(page.locator('body')).toContainText('REPORT_EXPIRED');
+	expect(unexpectedDownloads).toEqual([]);
+	await page.goBack();
+	await expect(pdf).toContainText('This PDF uses an earlier selection.');
+	await expect(generate).toBeEnabled();
 });
 
 test('recovers a PDF status failure and retries the original scope after a terminal job failure', async ({ page }) => {

@@ -169,7 +169,7 @@ export function ReportPdf({ account, selection }: { account: string; selection: 
 							{saved.errorCode ? <p className="field-hint">{failureDetails[saved.errorCode]}</p> : null}
 							{downloadPath ? (
 								<div className="form-actions">
-									<a className="action-link" href={downloadPath} download>Download PDF</a>
+									<a className="action-link" href={downloadPath}>Download PDF</a>
 									{saved.expiresAt ? <p className="field-hint">Available until <StockholmTime instant={saved.expiresAt} />.</p> : null}
 								</div>
 							) : null}
