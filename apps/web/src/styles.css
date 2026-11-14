@@ -915,3 +915,72 @@ button:disabled {
 		grid-template-columns: minmax(0, 1fr);
 	}
 }
+
+.work-list-bulk,
+.work-list-bulk-review {
+	display: grid;
+	gap: 0.75rem;
+	min-inline-size: 0;
+	overflow-wrap: anywhere;
+}
+
+.work-list-bulk h2,
+.work-list-bulk h3,
+.work-list-bulk p {
+	margin: 0;
+}
+
+.work-list-bulk h2 {
+	font-size: 1.125rem;
+}
+
+.work-list-bulk h3 {
+	font-size: 1rem;
+}
+
+.work-list-bulk form[hidden] {
+	display: none;
+}
+
+.work-list-bulk-action {
+	max-inline-size: 20rem;
+}
+
+.work-list-bulk-issues {
+	margin: 0;
+	padding-inline-start: 1.35rem;
+}
+
+.work-list-row-selectable {
+	display: grid;
+	grid-template-columns: 2.75rem minmax(0, 1fr) auto;
+	column-gap: 0.25rem;
+}
+
+.work-list-check {
+	display: grid;
+	place-items: center;
+	inline-size: 2.75rem;
+	min-block-size: 2.75rem;
+	margin-block-start: -0.45rem;
+	cursor: pointer;
+}
+
+.work-list-check input {
+	inline-size: 1.15rem;
+	block-size: 1.15rem;
+	min-block-size: 0;
+	padding: 0;
+	margin: 0;
+	accent-color: var(--accent);
+}
+
+@media (max-width: 36rem) {
+	.work-list-row-selectable {
+		grid-template-columns: 2.75rem minmax(0, 1fr);
+	}
+
+	.work-list-row-selectable .work-list-row-values {
+		grid-column: 2;
+	}
+}

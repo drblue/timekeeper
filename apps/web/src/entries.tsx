@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getRouteApi, Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { entriesPath, parseEntryResponse, parseWorkListResponse, workListPath } from '@timekeeper/contracts';
-import type { EntryResponse, WorkListRange } from '@timekeeper/contracts';
+import type { BulkEntryCommitResponse, EntryResponse, WorkListRange } from '@timekeeper/contracts';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { ApiRequestError, readApi } from './api';
 import { useSession } from './auth';
@@ -13,6 +13,8 @@ import { entriesKey } from './entry-query';
 import { formatDuration, StockholmTime } from './entry-display';
 import { EntryHistory } from './entry-history';
 import { EntryEditor } from './entry-editor';
+import { WorkListBulk } from './work-list-bulk';
+import type { BulkRowSelection } from './work-list-bulk';
 import { WorkListFilters } from './work-list-filters';
 import { effectiveWorkListSearch, unpinWorkListSearch, workListQueryString } from './work-list-search';
 import type { WorkListLocation } from './work-list-search';
@@ -32,7 +34,7 @@ interface RowPosition {
 	returnTo?: string;
 }
 
-function EntrySummary({ entry, seconds, amountOre, day, search, range, onOpen }: {
+function EntrySummary({ entry, seconds, amountOre, day, search, range, onOpen, selection }: {
 	entry: EntryResponse;
 	seconds: number;
 	amountOre: string | null;
@@ -40,6 +42,7 @@ function EntrySummary({ entry, seconds, amountOre, day, search, range, onOpen }:
 	search: WorkListLocation;
 	range: WorkListRange;
 	onOpen: (position: RowPosition) => void;
+	selection?: BulkRowSelection;
 }) {
 	const association = [entry.projectName, entry.clientName].filter(Boolean).join(' · ');
 	const row = useRef<HTMLElement>(null);
@@ -47,7 +50,14 @@ function EntrySummary({ entry, seconds, amountOre, day, search, range, onOpen }:
 	const portion = seconds !== entry.durationSeconds;
 	const detailSearch = { ...search, returnFrom: range.from, returnTo: range.to, returnRow: id, returnOffset: 0 };
 	return (
-		<article className="entry-summary work-list-row" id={id} ref={row}>
+		<article className={selection ? 'entry-summary work-list-row work-list-row-selectable' : 'entry-summary work-list-row'} id={id} ref={row}>
+			{selection ? (
+				<label className="work-list-check">
+					<input type="checkbox" checked={selection.checked(entry.id)} disabled={selection.disabled}
+						aria-label={'Select ' + (entry.description || 'untitled time entry') + ' · ' + day}
+						onChange={() => selection.toggle(entry.id)} />
+				</label>
+			) : null}
 			<div className="work-list-row-main">
 				<h3><Link to="/entries/$entryId" params={{ entryId: entry.id }} search={detailSearch}
 					onClick={(event) => {
@@ -96,6 +106,7 @@ export function Entries() {
 		networkMode: 'always',
 	});
 	const [editing, setEditing] = useState(false);
+	const [bulkFeedback, setBulkFeedback] = useState('');
 	const [savedId, setSavedId] = useState<string | null>(null);
 	const editorTrigger = useRef<HTMLButtonElement>(null);
 	const results = useRef<HTMLHeadingElement>(null);
@@ -112,6 +123,13 @@ export function Entries() {
 	function saved(entry: EntryResponse) {
 		setSavedId(entry.id);
 		closeEditor();
+		void queryClient.invalidateQueries({ queryKey: entriesKey });
+	}
+
+	function bulkSaved(result: BulkEntryCommitResponse) {
+		const action = { 'mark-invoiced': 'marked as invoiced', 'unmark-invoiced': 'unmarked', delete: 'moved to Trash' };
+		setBulkFeedback(result.count === 1 ? '1 entry ' + action[result.action] + '.' : result.count + ' entries ' + action[result.action] + '.');
+		heading.current?.focus();
 		void queryClient.invalidateQueries({ queryKey: entriesKey });
 	}
 
@@ -151,6 +169,8 @@ export function Entries() {
 	}, [data, entries.isError, entries.isFetching, filterKey, location.returnOffset, location.returnRow, movedToTrash, positionKey]);
 
 	const showPaging = data && data.totalPages > 1;
+	const { page: _page, sort: _sort, ...bulkFilters } = search;
+	const bulkScope = (session.account?.email ?? '') + '\n' + workListQueryString(bulkFilters);
 	return (
 		<section className="entry-page" aria-labelledby="entries-heading">
 			<div className="catalog-toolbar">
@@ -168,59 +188,63 @@ export function Entries() {
 					Time entry saved. <Link to="/entries/$entryId" params={{ entryId: savedId }} search={unpinWorkListSearch(location)}>View entry</Link>
 				</p>
 			) : null}
+			{bulkFeedback ? <p className="feedback" role="status">{bulkFeedback}</p> : null}
 			<WorkListFilters search={unpinWorkListSearch(location)} range={data?.range} onApply={apply} />
-			{entries.isError ? (
-				<div className="feedback error catalog-load-error">
-					<p role="alert">Could not load time entries. Check your connection and filters.</p>
-					<button type="button" onClick={() => void entries.refetch()} disabled={entries.isFetching}>Try again</button>
-				</div>
-			) : data ? (
-				<div className="work-list-results">
-					<div className="work-list-totals">
-						<h2 tabIndex={-1} ref={results}>Completed work</h2>
-						<dl aria-label="Totals for all matching days">
-							<div><dt>Duration</dt><dd>{formatDuration(data.totals.seconds)}</dd></div>
-							<div><dt>Billable amount</dt><dd>{formatSek(data.totals.amountOre)}</dd></div>
-						</dl>
+			<WorkListBulk scope={bulkScope} account={session.account?.email ?? ''} filters={bulkFilters} range={data?.range}
+				hasEntries={!!data && !entries.isError && data.totalRows + data.incomplete.length > 0} onSaved={bulkSaved}>
+				{(selection) => entries.isError ? (
+					<div className="feedback error catalog-load-error">
+						<p role="alert">Could not load time entries. Check your connection and filters.</p>
+						<button type="button" onClick={() => void entries.refetch()} disabled={entries.isFetching}>Try again</button>
 					</div>
-					{data.incompatibleSelection ? (
-						<p className="feedback warning" role="status">The selected project does not belong to the selected client. Change one of the filters.</p>
-					) : data.groups.length ? (
-						data.groups.map((group) => (
-							<section key={group.localDate} className="panel work-list-day" aria-labelledby={'day-' + group.localDate}>
-								<h3 id={'day-' + group.localDate}><time dateTime={group.localDate}>{dayHeading.format(new Date(group.localDate + 'T00:00:00Z'))}</time></h3>
+				) : data ? (
+					<div className="work-list-results">
+						<div className="work-list-totals">
+							<h2 tabIndex={-1} ref={results}>Completed work</h2>
+							<dl aria-label="Totals for all matching days">
+								<div><dt>Duration</dt><dd>{formatDuration(data.totals.seconds)}</dd></div>
+								<div><dt>Billable amount</dt><dd>{formatSek(data.totals.amountOre)}</dd></div>
+							</dl>
+						</div>
+						{data.incompatibleSelection ? (
+							<p className="feedback warning" role="status">The selected project does not belong to the selected client. Change one of the filters.</p>
+						) : data.groups.length ? (
+							data.groups.map((group) => (
+								<section key={group.localDate} className="panel work-list-day" aria-labelledby={'day-' + group.localDate}>
+									<h3 id={'day-' + group.localDate}><time dateTime={group.localDate}>{dayHeading.format(new Date(group.localDate + 'T00:00:00Z'))}</time></h3>
+									<ul className="entry-list">
+										{group.rows.map(({ entry, seconds, amountOre }) => (
+											<li key={entry.id}><EntrySummary entry={entry} seconds={seconds} amountOre={amountOre}
+												day={group.localDate} search={location} range={data.range} onOpen={remember} selection={selection} /></li>
+										))}
+									</ul>
+								</section>
+							))
+						) : <p className="catalog-empty">No completed time entries match these filters.</p>}
+						{showPaging ? (
+							<nav className="work-list-pagination" aria-label="Time entry pages">
+								<button type="button" disabled={data.page <= 1}
+									onClick={() => apply({ ...location, page: data.page > 2 ? data.page - 1 : undefined, returnRow: undefined, returnOffset: undefined }, true)}>Previous page</button>
+								<p className="field-hint">Page {data.page} of {data.totalPages}</p>
+								<button type="button" disabled={data.page >= data.totalPages}
+									onClick={() => apply({ ...location, page: data.page + 1, returnRow: undefined, returnOffset: undefined }, true)}>Next page</button>
+							</nav>
+						) : null}
+						{data.incomplete.length ? (
+							<section className="panel work-list-day" aria-label="Incomplete work">
+								<h3>Incomplete work</h3>
+								<p className="field-hint">Excluded from completed totals.</p>
 								<ul className="entry-list">
-									{group.rows.map(({ entry, seconds, amountOre }) => (
-										<li key={entry.id}><EntrySummary entry={entry} seconds={seconds} amountOre={amountOre}
-											day={group.localDate} search={location} range={data.range} onOpen={remember} /></li>
+									{data.incomplete.map((entry) => (
+										<li key={entry.id}><EntrySummary entry={entry} seconds={entry.durationSeconds} amountOre={null}
+											day={entry.localDate} search={location} range={data.range} onOpen={remember} selection={selection} /></li>
 									))}
 								</ul>
 							</section>
-						))
-					) : <p className="catalog-empty">No completed time entries match these filters.</p>}
-					{showPaging ? (
-						<nav className="work-list-pagination" aria-label="Time entry pages">
-							<button type="button" disabled={data.page <= 1}
-								onClick={() => apply({ ...location, page: data.page > 2 ? data.page - 1 : undefined, returnRow: undefined, returnOffset: undefined }, true)}>Previous page</button>
-							<p className="field-hint">Page {data.page} of {data.totalPages}</p>
-							<button type="button" disabled={data.page >= data.totalPages}
-								onClick={() => apply({ ...location, page: data.page + 1, returnRow: undefined, returnOffset: undefined }, true)}>Next page</button>
-						</nav>
-					) : null}
-					{data.incomplete.length ? (
-						<section className="panel work-list-day" aria-label="Incomplete work">
-							<h3>Incomplete work</h3>
-							<p className="field-hint">Excluded from completed totals.</p>
-							<ul className="entry-list">
-								{data.incomplete.map((entry) => (
-									<li key={entry.id}><EntrySummary entry={entry} seconds={entry.durationSeconds} amountOre={null}
-										day={entry.localDate} search={location} range={data.range} onOpen={remember} /></li>
-								))}
-							</ul>
-						</section>
-					) : null}
-				</div>
-			) : <p role="status">Loading time entries…</p>}
+						) : null}
+					</div>
+				) : <p role="status">Loading time entries…</p>}
+			</WorkListBulk>
 		</section>
 	);
 }

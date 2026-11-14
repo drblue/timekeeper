@@ -6,6 +6,7 @@ import { authError, postAuth, SessionContext, useReplaceSession, useSession, use
 import { Home } from './home';
 import { Login } from './login';
 import { Password } from './password';
+import { writeBulkOperation } from './bulk-operation';
 import { writeTimerOperation } from './timer-operation';
 import { validateWorkListLocation } from './work-list-search';
 import { WorkspaceTimer } from './workspace-timer';
@@ -22,7 +23,10 @@ function SignOut() {
 		try {
 			const response = await postAuth(authLogoutPath, session.csrfToken);
 			if (response.ok) {
-				if (session.account) writeTimerOperation(session.account.email, null);
+				if (session.account) {
+					writeTimerOperation(session.account.email, null);
+					writeBulkOperation(session.account.email, null);
+				}
 				await replaceSession(undefined);
 			} else {
 				setError(await authError(response, refresh));

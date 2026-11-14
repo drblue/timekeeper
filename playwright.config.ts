@@ -8,8 +8,9 @@ const correctionSpecs = '**/entry-corrections.spec.ts';
 const workListSpecs = '**/work-list.spec.ts';
 const trashSpecs = '**/entry-trash.spec.ts';
 const invoiceSpecs = '**/entry-invoice.spec.ts';
+const bulkSpecs = '**/entry-bulk.spec.ts';
 const suites = [
-	{ prefix: '', firstPort: 4317, filter: { testIgnore: [catalogSpecs, entrySpecs, transitionSpecs, correctionSpecs, workListSpecs, trashSpecs, invoiceSpecs] } },
+	{ prefix: '', firstPort: 4317, filter: { testIgnore: [catalogSpecs, entrySpecs, transitionSpecs, correctionSpecs, workListSpecs, trashSpecs, invoiceSpecs, bulkSpecs] } },
 	{ prefix: 'catalog-', firstPort: 4319, filter: { testMatch: catalogSpecs } },
 	{ prefix: 'entries-', firstPort: 4321, filter: { testMatch: entrySpecs } },
 	{ prefix: 'transitions-', firstPort: 4323, filter: { testMatch: transitionSpecs } },
@@ -17,6 +18,7 @@ const suites = [
 	{ prefix: 'work-list-', firstPort: 4327, filter: { testMatch: workListSpecs } },
 	{ prefix: 'trash-', firstPort: 4329, filter: { testMatch: trashSpecs } },
 	{ prefix: 'invoice-', firstPort: 4331, filter: { testMatch: invoiceSpecs } },
+	{ prefix: 'bulk-', firstPort: 4333, filter: { testMatch: bulkSpecs } },
 ];
 const viewports = [
 	{ name: 'desktop', use: { viewport: { width: 1280, height: 800 } } },

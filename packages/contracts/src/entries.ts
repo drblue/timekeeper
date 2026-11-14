@@ -141,12 +141,12 @@ export const EntryHistoryResponse = Type.Array(Type.Object({
 
 export const entryTrashPath = `${entriesPath}/trash`;
 export const EntryLifecycleBody = Type.Object({ revision: Revision }, strict);
-export const EntryInvoiceBody = Type.Object({
-	revision: Revision,
+export const entryInvoiceFields = {
 	invoiceNumber: Type.Optional(Type.Union([Type.String({ maxLength: maxInvoiceNumberLength }), Type.Null()])),
 	invoiceDate: Type.Optional(Type.Union([EntryLocalDate, Type.Literal(''), Type.Null()])),
 	invoiceReference: Type.Optional(Type.Union([Type.String({ maxLength: maxInvoiceReferenceLength }), Type.Null()])),
-}, strict);
+};
+export const EntryInvoiceBody = Type.Object({ revision: Revision, ...entryInvoiceFields }, strict);
 export const TrashedEntryResponse = Type.Object({ entry: EntryResponse, deletedAt: Timestamp, restoreUntil: Timestamp }, strict);
 export const EntryTrashResponse = Type.Array(TrashedEntryResponse);
 

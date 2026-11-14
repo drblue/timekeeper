@@ -70,10 +70,11 @@ export async function resolveWorkScope(
 	};
 }
 
-export async function readCompletedWork(transaction: Prisma.TransactionClient, scope: WorkScope) {
+export async function readCompletedWork(transaction: Prisma.TransactionClient, scope: WorkScope, entryIds?: string[]) {
 	if (scope.incompatibleSelection) return [];
 	const rows = await transaction.entryDayAllocation.findMany({
-		where: { localDate: { gte: scope.range.from, lte: scope.range.to }, entry: { ...scope.entryWhere, completion: 'complete' } },
+		where: { entryId: entryIds ? { in: entryIds } : undefined, localDate: { gte: scope.range.from, lte: scope.range.to },
+			entry: { ...scope.entryWhere, completion: 'complete' } },
 		select: {
 			entryId: true, localDate: true, seconds: true, amountOre: true,
 			entry: { select: { description: true, invoiceNumber: true, startAt: true, createdAt: true } },
@@ -82,13 +83,30 @@ export async function readCompletedWork(transaction: Prisma.TransactionClient, s
 	return rows.filter(({ entry }) => scope.matchesSearch(entry));
 }
 
-export function totalCompletedWork(rows: readonly { seconds: number; amountOre: bigint }[]) {
+export async function readIncompleteWork<T extends Prisma.EntryInclude>(
+	transaction: Prisma.TransactionClient, scope: WorkScope, include: T, entryIds?: string[],
+) {
+	if (scope.incompatibleSelection) return [];
+	const rows = await transaction.entry.findMany({
+		where: {
+			...scope.entryWhere, id: entryIds ? { in: entryIds } : undefined, completion: 'incomplete',
+			OR: [
+				{ durationSeconds: 0, localDate: { gte: scope.range.from, lte: scope.range.to } },
+				{ durationSeconds: { gt: 0 }, startAt: { lt: scope.endBefore }, endAt: { gt: scope.startAt } },
+			],
+		},
+		orderBy: [{ localDate: 'desc' }, { startAt: 'desc' }, { id: 'desc' }], include,
+	});
+	return rows.filter(scope.matchesSearch);
+}
+
+export function totalWork(rows: readonly { seconds: number; amountOre: bigint | null }[]) {
 	let seconds = 0;
 	let amountOre = 0n;
 	for (const row of rows) {
 		seconds += row.seconds;
-		amountOre += row.amountOre;
+		amountOre += row.amountOre ?? 0n;
 	}
-	if (!Number.isSafeInteger(seconds)) throw new Error('Completed work duration exceeded the supported total.');
+	if (!Number.isSafeInteger(seconds)) throw new Error('Work duration exceeded the supported total.');
 	return { seconds, amountOre };
 }

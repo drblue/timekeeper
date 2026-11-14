@@ -1,5 +1,11 @@
 import {
 	ApiErrorResponse,
+	BulkEntryCommitBody,
+	bulkEntryCommitPath,
+	BulkEntryCommitResponse,
+	BulkEntryPreviewBody,
+	bulkEntryPreviewPath,
+	BulkEntryPreviewResponse,
 	CompleteEntryBody,
 	CreateEntryBody,
 	EntryEditBody,
@@ -14,6 +20,8 @@ import {
 	EntryLifecycleBody,
 	EntryTrashResponse,
 	entryTrashPath,
+	idempotencyKeyHeader,
+	TimerIdempotencyHeaders,
 	TimedEntryResponse,
 	TrashedEntryResponse,
 	WorkListQuery,
@@ -27,6 +35,19 @@ const readErrors = { 400: ApiErrorResponse, 401: ApiErrorResponse, 500: ApiError
 const editErrors = { ...readErrors, 403: ApiErrorResponse, 404: ApiErrorResponse, 409: ApiErrorResponse, 413: ApiErrorResponse, 422: ApiErrorResponse };
 
 export function registerEntries(app: FastifyInstance, store: EntryStore) {
+	app.post<{ Body: BulkEntryPreviewBody }>(bulkEntryPreviewPath, {
+		bodyLimit: 65_536,
+		schema: { operationId: 'previewBulkEntries', body: BulkEntryPreviewBody, response: { 200: BulkEntryPreviewResponse, ...editErrors } },
+	}, (request) => store.previewBulkEntries(request.accountSession!.accountId, request.body));
+
+	app.post<{ Body: BulkEntryCommitBody; Headers: TimerIdempotencyHeaders }>(bulkEntryCommitPath, {
+		bodyLimit: 1_024,
+		schema: {
+			operationId: 'commitBulkEntries', body: BulkEntryCommitBody, headers: TimerIdempotencyHeaders,
+			response: { 200: BulkEntryCommitResponse, ...editErrors },
+		},
+	}, (request) => store.commitBulkEntries(request.accountSession!.accountId, request.headers[idempotencyKeyHeader], request.body.previewToken));
+
 	app.post<{ Params: EntryIdParams; Body: EntryInvoiceBody }>(`${entriesPath}/:id/invoice`, {
 		bodyLimit: 32_768,
 		schema: { operationId: 'markEntryInvoiced', params: EntryIdParams, body: EntryInvoiceBody, response: { 200: EntryResponse, ...editErrors } },

@@ -13,7 +13,7 @@ import { EntryBillingFields, useEntryBilling } from './entry-billing-fields';
 import { formatDurationInput } from './entry-time';
 import { entriesKey } from './entry-query';
 import { formatSek, parseHourlyRate } from './money';
-import { readTimerOperation, timerOperationKey, writeTimerOperation } from './timer-operation';
+import { readTimerOperation, operationKey, writeTimerOperation } from './timer-operation';
 import type { TimerOperation } from './timer-operation';
 
 const timerKey = [timerPath] as const;
@@ -240,12 +240,12 @@ export function WorkspaceTimer({ account, sessionUnavailable, children }: {
 	}
 
 	function start(body: StartTimerBody) {
-		if (canAct) void run({ kind: 'start', key: timerOperationKey(), body });
+		if (canAct) void run({ kind: 'start', key: operationKey(), body });
 	}
 
 	function stop() {
 		if (canAct && timer) {
-			void run({ kind: 'stop', key: timerOperationKey(), body: { timerId: timer.id, revision: timer.revision } });
+			void run({ kind: 'stop', key: operationKey(), body: { timerId: timer.id, revision: timer.revision } });
 		}
 	}
 
@@ -257,7 +257,7 @@ export function WorkspaceTimer({ account, sessionUnavailable, children }: {
 	}
 
 	function switchWork(next: StartTimerRequest, current: StopTimerBody) {
-		return run({ kind: 'switch', key: timerOperationKey(), body: { ...current, next } });
+		return run({ kind: 'switch', key: operationKey(), body: { ...current, next } });
 	}
 
 	function continueWork(body: StartTimerRequest, current: StopTimerBody | null) {
@@ -266,7 +266,7 @@ export function WorkspaceTimer({ account, sessionUnavailable, children }: {
 		}
 		return current
 			? switchWork(body, current)
-			: run({ kind: 'start', key: timerOperationKey(), body });
+			: run({ kind: 'start', key: operationKey(), body });
 	}
 
 	const association = timer ? [timer.projectName, timer.clientName].filter(Boolean).join(' · ') : '';

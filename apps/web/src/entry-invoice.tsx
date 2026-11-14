@@ -1,4 +1,4 @@
-import { entriesPath, maxInvoiceNumberLength, maxInvoiceReferenceLength, parseEntryResponse } from '@timekeeper/contracts';
+import { entriesPath, parseEntryResponse } from '@timekeeper/contracts';
 import type { EntryInvoiceBody, EntryResponse } from '@timekeeper/contracts';
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import type { SubmitEvent } from 'react';
@@ -6,6 +6,7 @@ import { ApiRequestError, writeApi } from './api';
 import { authError, useSession } from './auth';
 import { formatDuration, StockholmTime } from './entry-display';
 import { formatSek } from './money';
+import { InvoiceFields, invoiceMetadata } from './invoice-fields';
 
 type InvoiceAction = 'mark' | 'edit' | 'unmark';
 
@@ -84,13 +85,8 @@ export function EntryInvoice({ entry, onSaved, onRefresh }: {
 	async function submit(event: SubmitEvent<HTMLFormElement>) {
 		event.preventDefault();
 		if (!draft || changed || mustCheck || pending) return;
-		const form = new FormData(event.currentTarget);
-		const body: EntryInvoiceBody = { revision: draft.entry.revision };
-		if (draft.action !== 'unmark') {
-			body.invoiceNumber = String(form.get('invoiceNumber') ?? '').trim() || null;
-			body.invoiceDate = String(form.get('invoiceDate') ?? '') || null;
-			body.invoiceReference = String(form.get('invoiceReference') ?? '').trim() || null;
-		}
+		const body: EntryInvoiceBody = { revision: draft.entry.revision,
+			...(draft.action !== 'unmark' ? invoiceMetadata(event.currentTarget) : {}) };
 		setPending(true);
 		setError('');
 		setDateError('');
@@ -175,23 +171,8 @@ export function EntryInvoice({ entry, onSaved, onRefresh }: {
 					{changed ? <p className="feedback warning" role="alert">The saved entry changed. Review the current details above. Cancel to start again.</p> : null}
 					{error ? <p className="feedback error" role="alert">{error}</p> : null}
 					{draft.action !== 'unmark' ? (
-						<fieldset className="record-fields entry-invoice-fields" disabled={pending}>
-							<div className="field">
-								<label htmlFor={id + '-number'}>Invoice number (optional)</label>
-								<input id={id + '-number'} name="invoiceNumber" type="text" defaultValue={draft.entry.invoiceNumber} maxLength={maxInvoiceNumberLength} />
-							</div>
-							<div className="field">
-								<label htmlFor={id + '-date'}>Invoice date (optional)</label>
-								<input id={id + '-date'} ref={dateInput} name="invoiceDate" type="date" defaultValue={draft.entry.invoiceDate}
-									min="0001-01-01" max="9999-12-31" onChange={() => setDateError('')}
-									aria-invalid={dateError ? true : undefined} aria-describedby={dateError ? id + '-date-error' : undefined} />
-								{dateError ? <p className="entry-field-error" id={id + '-date-error'}>{dateError}</p> : null}
-							</div>
-							<div className="field entry-invoice-reference">
-								<label htmlFor={id + '-reference'}>Invoice reference (optional)</label>
-								<textarea id={id + '-reference'} name="invoiceReference" rows={2} defaultValue={draft.entry.invoiceReference} maxLength={maxInvoiceReferenceLength} />
-							</div>
-						</fieldset>
+						<InvoiceFields values={draft.entry} disabled={pending} dateInput={dateInput}
+							dateError={dateError} onDateChange={() => setDateError('')} />
 					) : null}
 					<div className="form-actions">
 						{mustCheck ? (

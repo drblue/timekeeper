@@ -35,7 +35,7 @@ type InvoiceChange =
 	| { action: 'invoice-unmarked' };
 
 export async function writeInvoiceChange(
-	transaction: Prisma.TransactionClient, current: EntryWithRelations, change: InvoiceChange, at: Date,
+	transaction: Prisma.TransactionClient, current: EntryWithRelations, change: InvoiceChange, at: Date, operationKey?: string,
 ): Promise<EntryResponse> {
 	const { action } = change;
 	if (action === 'invoice-marked') requireInvoiceEligibility(current);
@@ -53,7 +53,7 @@ export async function writeInvoiceChange(
 		data: { ...metadata, invoicedAt, revision: { increment: 1 } }, include: entryRelations,
 	});
 	const response = entryResponse(updated);
-	await recordHistory(transaction, action, at, response, entryResponse(current));
+	await recordHistory(transaction, action, at, response, entryResponse(current), operationKey);
 	return response;
 }
 

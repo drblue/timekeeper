@@ -1,13 +1,13 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { parseStopTimerResponse, parseSwitchTimerResponse, parseTimerStateResponse } from '@timekeeper/contracts';
 import type { RunningTimerResponse, StartTimerRequest, StopTimerBody, StopTimerResponse, SwitchTimerBody, SwitchTimerResponse, TimerStateResponse } from '@timekeeper/contracts';
-import { writeForAccount } from '../account-write.ts';
 import { ApiRequestError } from '../api-error.ts';
 import { writeEntry } from '../entries/store.ts';
 import { timedInterval } from '../entries/timed-entry.ts';
 import { resolveWorkSettings, workAssociation, workRelations } from '../entries/work-settings.ts';
 import type { WorkSettings } from '../entries/work-settings.ts';
 import type { Prisma, PrismaClient } from '../generated/prisma/client.ts';
+import { writeWithReceipt } from '../operation-receipt.ts';
 import { continueEntryPreview, resolveContinuation } from './continuation.ts';
 
 type TimerWithRelations = Prisma.RunningTimerGetPayload<{ include: typeof workRelations }>;
@@ -69,27 +69,6 @@ async function closeRunningTimer(
 }
 
 export function createTimerStore(database: PrismaClient, now: () => Date = () => new Date()) {
-	function transition<T extends TimerStateResponse | StopTimerResponse>(
-		accountId: string, key: string, request: readonly unknown[],
-		parse: (value: unknown) => T, run: (transaction: Prisma.TransactionClient) => Promise<T>,
-	) {
-		const requestHash = createHash('sha256').update(JSON.stringify(request)).digest('hex');
-		return writeForAccount(database, accountId, async (transaction) => {
-			const receipt = await transaction.operationReceipt.findUnique({ where: { accountId_key: { accountId, key } } });
-			if (receipt) {
-				if (receipt.requestHash !== requestHash) {
-					throw new ApiRequestError(409, 'IDEMPOTENCY_CONFLICT', 'This operation ID was already used for a different request.');
-				}
-				return parse(JSON.parse(receipt.resultSnapshot));
-			}
-			const result = await run(transaction);
-			parse(result);
-			await transaction.operationReceipt.create({ data: {
-				accountId, key, requestHash, resultSnapshot: JSON.stringify(result), completedAt: new Date(result.serverNow),
-			} });
-			return result;
-		});
-	}
 
 	return {
 		async getState(accountId: string): Promise<TimerStateResponse> {
@@ -104,7 +83,7 @@ export function createTimerStore(database: PrismaClient, now: () => Date = () =>
 		},
 
 		start(accountId: string, key: string, input: StartTimerRequest): Promise<TimerStateResponse> {
-			return transition(accountId, key, startRequestIdentity(input), parseTimerStateResponse, async (transaction) => {
+			return writeWithReceipt(database, accountId, key, startRequestIdentity(input), parseTimerStateResponse, async (transaction) => {
 				if (await transaction.runningTimer.findUnique({ where: { accountId }, select: { id: true } })) {
 					throw new ApiRequestError(409, 'TIMER_RUNNING', 'A timer is already running.');
 				}
@@ -117,7 +96,7 @@ export function createTimerStore(database: PrismaClient, now: () => Date = () =>
 
 		stop(accountId: string, key: string, input: StopTimerBody): Promise<StopTimerResponse> {
 			const { timerId, revision } = input;
-			return transition(accountId, key, ['timer.stop', timerId, revision], parseStopTimerResponse, async (transaction) => {
+			return writeWithReceipt(database, accountId, key, ['timer.stop', timerId, revision], parseStopTimerResponse, async (transaction) => {
 				const timer = await currentTimer(transaction, accountId, input);
 				const serverNow = now();
 				const entry = await closeRunningTimer(transaction, timer, wholeSecond(serverNow), serverNow, key);
@@ -127,7 +106,7 @@ export function createTimerStore(database: PrismaClient, now: () => Date = () =>
 
 		switchTimer(accountId: string, key: string, input: SwitchTimerBody): Promise<SwitchTimerResponse> {
 			const request = ['timer.switch', input.timerId, input.revision, ...startRequestIdentity(input.next)];
-			return transition(accountId, key, request, parseSwitchTimerResponse, async (transaction) => {
+			return writeWithReceipt(database, accountId, key, request, parseSwitchTimerResponse, async (transaction) => {
 				const current = await currentTimer(transaction, accountId, input);
 				const next = await startWork(transaction, accountId, input.next);
 				const serverNow = now();

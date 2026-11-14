@@ -22,6 +22,7 @@ model Account {
   entries      Entry[]
   runningTimer RunningTimer?
   operationReceipts OperationReceipt[]
+  bulkEntryPreviews BulkEntryPreview[]
 }
 
 model Session {
@@ -144,6 +145,17 @@ model OperationReceipt {
 	completedAt    DateTime
 
 	@@id([accountId, key])
+}
+
+model BulkEntryPreview {
+	id         String   @id
+	accountId  String
+	account    Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+	snapshot   String
+	expiresAt  DateTime
+	consumedAt DateTime?
+
+	@@index([accountId, expiresAt])
 }
 
 model EntryHistory {

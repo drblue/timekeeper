@@ -4,6 +4,7 @@ import { Value } from '@sinclair/typebox/value';
 
 export * from './catalog.js';
 export * from './entries.js';
+export * from './bulk-entries.js';
 export * from './stockholm-time.js';
 export * from './timer.js';
 export * from './work-list.js';

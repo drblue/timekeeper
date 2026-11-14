@@ -3,7 +3,7 @@ import type { WorkListQuery, WorkListResponse } from '@timekeeper/contracts';
 import { ApiRequestError } from '../api-error.ts';
 import type { PrismaClient } from '../generated/prisma/client.ts';
 import { activeEntryWhere, entryRelations, entryResponse } from './entry-record.ts';
-import { readCompletedWork, resolveWorkScope, totalCompletedWork, workDateRange } from './work-scope.ts';
+import { readCompletedWork, readIncompleteWork, resolveWorkScope, totalWork, workDateRange } from './work-scope.ts';
 
 function compareText(left: string, right: string) {
 	return left < right ? -1 : left > right ? 1 : 0;
@@ -20,7 +20,7 @@ export function createWorkList(database: PrismaClient, now: () => Date = () => n
 		return database.$transaction(async (transaction) => {
 			const scope = await resolveWorkScope(transaction, accountId, range, query);
 			const rows = await readCompletedWork(transaction, scope);
-			const totals = totalCompletedWork(rows);
+			const totals = totalWork(rows);
 			const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
 			const page = Math.min(requestedPage, totalPages);
 			rows.sort((left, right) => direction * (
@@ -43,17 +43,8 @@ export function createWorkList(database: PrismaClient, now: () => Date = () => n
 				}
 				group.rows.push({ entry, seconds: row.seconds, amountOre: row.amountOre.toString() });
 			}
-			const incompleteRows = scope.incompatibleSelection ? [] : await transaction.entry.findMany({
-				where: {
-					...scope.entryWhere, completion: 'incomplete',
-					OR: [
-						{ durationSeconds: 0, localDate: { gte: range.from, lte: range.to } },
-						{ durationSeconds: { gt: 0 }, startAt: { lt: scope.endBefore }, endAt: { gt: scope.startAt } },
-					],
-				},
-				orderBy: [{ localDate: 'desc' }, { startAt: 'desc' }, { id: 'desc' }], include: entryRelations,
-			});
-			const incomplete = incompleteRows.filter(scope.matchesSearch).map((entry) => {
+			const incompleteRows = await readIncompleteWork(transaction, scope, entryRelations);
+			const incomplete = incompleteRows.map((entry) => {
 				const response = entryResponse(entry);
 				if (response.completion !== 'incomplete') throw new Error('Incomplete work did not have an incomplete entry.');
 				return response;

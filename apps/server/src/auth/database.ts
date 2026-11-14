@@ -29,6 +29,7 @@ export async function openDatabase(url: string): Promise<PrismaClient> {
 		await database.entryHistory.findFirst({ select: { id: true } });
 		await database.runningTimer.findFirst({ select: { id: true } });
 		await database.operationReceipt.findFirst({ select: { key: true } });
+		await database.bulkEntryPreview.findFirst({ select: { id: true } });
 		return database;
 	} catch {
 		await database.$disconnect();

@@ -33,7 +33,7 @@ export function writeTimerOperation(account: string, operation: TimerOperation |
 	}
 }
 
-export function timerOperationKey() {
+export function operationKey() {
 	// randomUUID is limited to secure contexts, while the app can run on a private HTTP host.
 	if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
 	const bytes = crypto.getRandomValues(new Uint8Array(16));

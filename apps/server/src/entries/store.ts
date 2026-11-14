@@ -15,6 +15,8 @@ import type { EntryWithRelations } from './entry-record.ts';
 import { readHistorySnapshot, recordHistory } from './entry-history.ts';
 import { validLocalDate } from '../local-date.ts';
 import { createEntryInvoiceStore } from './invoicing.ts';
+import { createBulkEntryStore } from './bulk.ts';
+import { changeEntryDeletion, requireUninvoicedEntry } from './entry-deletion.ts';
 
 const allocationCalculationVersion = 1;
 const trashRetentionMs = 30 * 24 * 60 * 60 * 1_000;
@@ -38,10 +40,6 @@ interface EntryTime {
 	segments: EntryDaySegment[];
 }
 
-function requireUninvoicedEntry(current: EntryWithRelations, action: 'editing' | 'deleting') {
-	if (current.invoicedAt) throw new ApiRequestError(409, 'ENTRY_INVOICED', `Unmark this entry as invoiced before ${action} it.`);
-}
-
 async function editableEntry(transaction: Prisma.TransactionClient, accountId: string, id: string, revision: number) {
 	const current = await transaction.entry.findUnique({ where: { id, ...activeEntryWhere(accountId) }, include: entryRelations });
 	if (!current) throw new ApiRequestError(404, 'NOT_FOUND', 'Time entry was not found.');
@@ -53,19 +51,6 @@ async function editableEntry(transaction: Prisma.TransactionClient, accountId: s
 function trashedEntryResponse(entry: EntryResponse): TrashedEntryResponse {
 	if (!entry.deletedAt) throw new Error('Trashed entry did not have a deletion date.');
 	return { entry, deletedAt: entry.deletedAt, restoreUntil: new Date(Date.parse(entry.deletedAt) + trashRetentionMs).toISOString() };
-}
-
-async function changeEntryDeletion(
-	transaction: Prisma.TransactionClient, current: EntryWithRelations, deletedAt: Date | null, now: Date,
-): Promise<EntryResponse> {
-	const { id, accountId, revision } = current;
-	const updated = await transaction.entry.update({
-		where: { id, accountId, revision, deletedAt: current.deletedAt, ...(deletedAt ? { invoicedAt: null } : {}) },
-		data: { deletedAt, revision: { increment: 1 } }, include: entryRelations,
-	});
-	const response = entryResponse(updated);
-	await recordHistory(transaction, deletedAt ? 'deleted' : 'restored', now, response, entryResponse(current));
-	return response;
 }
 
 function savedTime(current: EntryWithRelations): EntryTime {
@@ -174,6 +159,7 @@ export function createEntryStore(database: PrismaClient, now: () => Date = () =>
 	return {
 		getWorkList: createWorkList(database, now),
 		...createEntryInvoiceStore(database, now),
+		...createBulkEntryStore(database, now),
 		async listEntries(accountId: string): Promise<EntryResponse[]> {
 			const entries = await database.$transaction((transaction) => transaction.entry.findMany({
 				where: activeEntryWhere(accountId),

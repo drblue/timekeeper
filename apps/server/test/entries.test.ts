@@ -6,14 +6,19 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
 	authSessionPath,
+	bulkEntryCommitPath,
+	bulkEntryPreviewPath,
 	clientsPath,
 	csrfHeader,
 	entriesPath,
 	entryTrashPath,
+	idempotencyKeyHeader,
 	maxEntryDescriptionLength,
 	maxEntryDurationSeconds,
 	maxHourlyRateOre,
 	parseAuthSessionResponse,
+	parseBulkEntryCommitResponse,
+	parseBulkEntryPreviewResponse,
 	parseEntryListResponse,
 	parseEntryEditPreview,
 	parseEntryHistoryResponse,
@@ -25,7 +30,7 @@ import {
 	projectsPath,
 	workListPath,
 } from '@timekeeper/contracts';
-import type { CreateDurationEntryBody, CreateTimedEntryBody, EntryEditBody, EntryResponse, WorkListQuery } from '@timekeeper/contracts';
+import type { BulkEntryPreviewBody, CreateDurationEntryBody, CreateTimedEntryBody, EntryEditBody, EntryResponse, WorkListQuery } from '@timekeeper/contracts';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { openDatabase } from '../src/auth/database.ts';
@@ -125,6 +130,17 @@ describe('Manual entries', () => {
 		expect(result.statusCode, result.body).toBe(200);
 		expect(result.headers['cache-control']).toBe('no-store');
 		return parseWorkListResponse(result.json());
+	}
+
+	async function bulkPreview(input: BulkEntryPreviewBody) {
+		const result = await request('POST', bulkEntryPreviewPath, input);
+		expect(result.statusCode, result.body).toBe(200);
+		return parseBulkEntryPreviewResponse(result.json());
+	}
+
+	function bulkCommit(previewToken: string | null, key: string = randomUUID()) {
+		return app.inject({ ...session, method: 'POST', url: bulkEntryCommitPath, payload: { previewToken },
+			headers: { ...session.headers, [idempotencyKeyHeader]: key } });
 	}
 
 	async function createEntry(overrides?: Partial<CreateDurationEntryBody>) {
@@ -813,5 +829,96 @@ describe('Manual entries', () => {
 		expect((await readWork({ invoice: 'not-yet-invoiced' })).totalRows).toBe(0);
 		expect((await request('POST', `${entriesPath}/${free.id}/delete`, { revision: 1 })).statusCode).toBe(200);
 		expect((await request('POST', `${entriesPath}/${free.id}/invoice`, { revision: 2 })).statusCode).toBe(404);
+	});
+
+	it('previews exact deduplicated full-entry impact, marks atomically and replays after preview expiry', async () => {
+		const first = await createTimedEntry({ startLocal: '2026-11-16T23:30', endLocal: '2026-11-17T00:30', billable: true, rateOverrideOrePerHour: '1' });
+		const second = await createEntry({ localDate: '2026-11-16', durationSeconds: 3_600, billable: true, rateOverrideOrePerHour: maxHourlyRateOre });
+		const range = { from: '2026-11-16', to: '2026-11-17', page: '2', pageSize: '1' };
+		const preview = await bulkPreview({ action: 'mark-invoiced', filters: range,
+			selection: { mode: 'explicit', entryIds: [first.id, second.id, first.id] },
+			metadata: { invoiceNumber: 'SE-00017', invoiceDate: '2026-11-12', invoiceReference: 'Shared' } });
+		expect(preview).toMatchObject({ count: 2, seconds: 7_200, amountOre: '9223372036854775808', canCommit: true,
+			entries: expect.arrayContaining([{ id: first.id, revision: 1, seconds: 3_600, amountOre: '1', description: first.description, issues: [] }]) });
+		expect(await database.entry.count({ where: { invoicedAt: { not: null } } })).toBe(0);
+		const key = randomUUID();
+		const commits = await Promise.all([bulkCommit(preview.previewToken, key), bulkCommit(preview.previewToken, key)]);
+		expect(commits.map(({ statusCode }) => statusCode)).toEqual([200, 200]);
+		const original = parseBulkEntryCommitResponse(commits[0]!.json());
+		expect(commits[1]?.json()).toEqual(original);
+		expect(original).toMatchObject({ action: 'mark-invoiced', count: 2, entryIds: [first.id, second.id].sort(), serverNow: now });
+		expect(await database.entry.count({ where: { invoicedAt: new Date(now), invoiceNumber: 'SE-00017', revision: 2 } })).toBe(2);
+		expect(await database.entryHistory.count({ where: { operationKey: key, action: 'invoice-marked' } })).toBe(2);
+		expect((await bulkCommit(preview.previewToken)).json()).toMatchObject({ code: 'BULK_PREVIEW_CHANGED' });
+		expect((await bulkCommit(randomUUID(), key)).json()).toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' });
+		now = '2026-11-15T23:45:00.000Z';
+		const reversal = await bulkPreview({ action: 'unmark-invoiced', filters: range, selection: { mode: 'all-matching' } });
+		expect(await database.bulkEntryPreview.findUnique({ where: { id: preview.previewToken! } })).toBeNull();
+		expect((await bulkCommit(preview.previewToken, key)).json()).toEqual(original);
+		expect((await bulkCommit(reversal.previewToken)).statusCode).toBe(200);
+		expect(await database.entry.count({ where: { invoicedAt: null, invoiceNumber: null, revision: 3 } })).toBe(2);
+	});
+
+	it('rejects changed all-page or explicit scope and never applies only a matching subset', async () => {
+		const filters = { from: '2026-11-16', to: '2026-11-16', description: 'Matching', page: '2', pageSize: '1' };
+		const first = await createEntry({ localDate: filters.from, description: 'Matching first' });
+		const second = await createEntry({ localDate: filters.from, description: 'Matching second' });
+		const all: BulkEntryPreviewBody = { action: 'delete', filters, selection: { mode: 'all-matching' } };
+		const initial = await bulkPreview(all);
+		expect(initial).toMatchObject({ count: 2, seconds: 10_800, canCommit: true });
+		await createEntry({ localDate: filters.from, description: 'Matching third' });
+		expect((await bulkCommit(initial.previewToken)).json()).toMatchObject({ code: 'BULK_PREVIEW_CHANGED' });
+		const explicit: BulkEntryPreviewBody = { ...all, selection: { mode: 'explicit', entryIds: [first.id, second.id] } };
+		const selected = await bulkPreview(explicit);
+		const changed = await request('PUT', `${entriesPath}/${second.id}`, change(second, { description: 'Leaves scope' }));
+		expect(changed.statusCode).toBe(200);
+		expect((await bulkCommit(selected.previewToken)).json()).toMatchObject({ code: 'BULK_PREVIEW_CHANGED' });
+		const invalid = await bulkPreview(explicit);
+		expect(invalid).toMatchObject({ canCommit: false, previewToken: null, entries: expect.arrayContaining([expect.objectContaining({ id: second.id, issues: ['outside-selection'] })]) });
+		expect(await database.entry.count({ where: { deletedAt: { not: null } } })).toBe(0);
+		expect(await database.operationReceipt.count()).toBe(0);
+	});
+
+	it('blocks marking even when an outside-date portion has zero amount and displays incomplete eligibility', async () => {
+		const timedEntry = await createTimedEntry({ startLocal: '2026-11-16T23:30', endLocal: '2026-11-17T00:30', billable: true, rateOverrideOrePerHour: '0' });
+		const incomplete = await database.entry.create({ data: {
+			id: randomUUID(), accountId, kind: 'timed', completion: 'incomplete', description: '', localDate: '2026-11-16',
+			startAt: new Date('2026-11-16T11:00:00.000Z'), endAt: new Date('2026-11-16T11:01:00.000Z'), durationSeconds: 60, billable: false,
+		} });
+		const payload: BulkEntryPreviewBody = { action: 'mark-invoiced', filters: { from: '2026-11-16', to: '2026-11-16' }, selection: { mode: 'all-matching' } };
+		const preview = await bulkPreview(payload);
+		expect(preview).toMatchObject({ count: 2, seconds: 3_660, amountOre: '0', canCommit: false, previewToken: null,
+			entries: expect.arrayContaining([expect.objectContaining({ id: timedEntry.id, issues: ['outside-date-range'] }),
+				expect.objectContaining({ id: incomplete.id, issues: ['not-completed', 'non-billable'] })]) });
+		expect((await bulkCommit(preview.previewToken)).statusCode).toBe(400);
+		const deletion = await bulkPreview({ ...payload, action: 'delete' });
+		expect(deletion).toMatchObject({ count: 2, seconds: 3_660, canCommit: true,
+			entries: expect.arrayContaining([expect.objectContaining({ id: incomplete.id, amountOre: null, seconds: 60 })]) });
+		expect((await bulkCommit(deletion.previewToken)).statusCode).toBe(200);
+		expect((await readWork(payload.filters)).totalRows).toBe(0);
+		expect(parseEntryTrashResponse((await request('GET', entryTrashPath)).json())).toHaveLength(2);
+	});
+
+	it('rolls back every bulk mutation on later history failure and rejects expired previews', async () => {
+		const first = await createEntry({ localDate: '2026-11-16' });
+		const second = await createEntry({ localDate: '2026-11-16' });
+		const input: BulkEntryPreviewBody = { action: 'delete', filters: { preset: 'today' }, selection: { mode: 'all-matching' } };
+		const preview = await bulkPreview(input);
+		const secondWrite = [first.id, second.id].sort()[1];
+		await database.$executeRaw`CREATE TRIGGER "test_bulk_history_failure" BEFORE INSERT ON "EntryHistory"
+			WHEN NEW."action" = 'deleted' AND (SELECT count(*) FROM "Entry" WHERE "deletedAt" IS NOT NULL) = 2
+			BEGIN SELECT RAISE(ABORT, 'Test bulk history failure'); END`;
+		const key = randomUUID();
+		expect((await bulkCommit(preview.previewToken, key)).statusCode).toBe(500);
+		expect(await database.entry.count({ where: { deletedAt: null } })).toBe(2);
+		expect(await database.entryHistory.count({ where: { action: 'deleted' } })).toBe(0);
+		expect(await database.operationReceipt.count()).toBe(0);
+		expect((await database.bulkEntryPreview.findUnique({ where: { id: preview.previewToken! } }))?.consumedAt).toBeNull();
+		await database.$executeRaw`DROP TRIGGER "test_bulk_history_failure"`;
+		now = '2026-11-15T23:45:00.000Z';
+		expect((await bulkCommit(preview.previewToken, key)).json()).toMatchObject({ code: 'BULK_PREVIEW_EXPIRED' });
+		const fresh = await bulkPreview(input);
+		expect((await bulkCommit(fresh.previewToken, key)).statusCode).toBe(200);
+		expect((await database.entry.findUnique({ where: { id: secondWrite } }))?.revision).toBe(2);
 	});
 });
