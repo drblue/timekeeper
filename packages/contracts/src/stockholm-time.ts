@@ -22,6 +22,10 @@ function candidate(time: Temporal.ZonedDateTime): StockholmInstantCandidate {
 }
 
 export function resolveStockholmLocalTime(local: string): StockholmLocalTimeResolution {
+	return resolveLocalTime(local, entryTimeZone);
+}
+
+export function resolveLocalTime(local: string, timeZone: string): StockholmLocalTimeResolution {
 	if (!entryLocalDateTime.test(local) || local.startsWith('0000-') || local.slice(17) === '60') {
 		return { status: 'invalid' };
 	}
@@ -32,11 +36,11 @@ export function resolveStockholmLocalTime(local: string): StockholmLocalTimeReso
 		if (error instanceof RangeError) return { status: 'invalid' };
 		throw error;
 	}
-	const earlier = time.toZonedDateTime(entryTimeZone, { disambiguation: 'earlier' });
+	const earlier = time.toZonedDateTime(timeZone, { disambiguation: 'earlier' });
 	if (!earlier.toPlainDateTime().equals(time)) {
 		return { status: 'nonexistent' };
 	}
-	const later = time.toZonedDateTime(entryTimeZone, { disambiguation: 'later' });
+	const later = time.toZonedDateTime(timeZone, { disambiguation: 'later' });
 	return earlier.epochNanoseconds === later.epochNanoseconds
 		? { status: 'valid', ...candidate(earlier) }
 		: { status: 'ambiguous', earlier: candidate(earlier), later: candidate(later) };

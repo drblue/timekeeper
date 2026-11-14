@@ -167,6 +167,13 @@ const reportSettingsRoute = createRoute({
 	component: lazyRouteComponent(() => import('./report-settings'), 'ReportSettings'),
 });
 
+const clockifyRoute = createRoute({
+	getParentRoute: () => protectedRoute,
+	path: '/imports/clockify',
+	validateSearch: validateWorkListLocation,
+	component: lazyRouteComponent(() => import('./clockify-inspection'), 'ClockifyInspection'),
+});
+
 export const router = createRouter({
 	parseSearch: (search) => Object.fromEntries(new URLSearchParams(search)),
 	stringifySearch: (search) => {
@@ -179,7 +186,7 @@ export const router = createRouter({
 	},
 	routeTree: rootRoute.addChildren([
 		loginRoute,
-		protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute, entriesRoute, entryDetailRoute, entryTrashRoute, reportPreviewRoute, reportSettingsRoute]),
+		protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute, entriesRoute, entryDetailRoute, entryTrashRoute, reportPreviewRoute, reportSettingsRoute, clockifyRoute]),
 	]),
 });
 
@@ -187,6 +194,7 @@ declare module '@tanstack/react-router' {
 	interface HistoryState {
 		entryMovedToTrash?: boolean;
 		reportPreviewReturned?: boolean;
+		clockifyInspectionReturned?: boolean;
 	}
 
 	interface Register {

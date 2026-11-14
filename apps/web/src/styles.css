@@ -1326,3 +1326,104 @@ button:disabled {
 .report-pdf p {
 	margin: 0;
 }
+
+.clockify-page > .field-hint {
+	max-inline-size: 65ch;
+}
+
+.clockify-zone input {
+	max-inline-size: 26rem;
+}
+
+.clockify-results,
+.clockify-row-review {
+	overflow-wrap: anywhere;
+}
+
+.clockify-results p,
+.clockify-row-review h3 {
+	margin: 0;
+}
+
+.clockify-counts {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.65rem 1.4rem;
+	margin: 0;
+}
+
+.clockify-counts dt {
+	color: var(--muted);
+	font-size: 0.875rem;
+}
+
+.clockify-counts dd {
+	margin: 0.15rem 0 0;
+	font-weight: 650;
+	font-variant-numeric: tabular-nums;
+}
+
+.clockify-row-review h3 {
+	font-size: 1rem;
+	margin-block: 0.4rem 0.55rem;
+}
+
+.clockify-rows {
+	list-style: none;
+	padding: 0;
+	margin: 0;
+}
+
+.clockify-row {
+	border-block-start: 1px solid var(--border);
+	padding-block: 0.65rem;
+}
+
+.clockify-row summary {
+	cursor: pointer;
+}
+
+.clockify-row-title {
+	display: inline-grid;
+	vertical-align: top;
+	gap: 0.1rem;
+	max-inline-size: calc(100% - 1.25rem);
+}
+
+.clockify-row-status {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem 0.8rem;
+	padding-inline-start: 1rem;
+	margin-block-start: 0.25rem;
+	font-size: 0.875rem;
+	font-variant-numeric: tabular-nums;
+	color: var(--muted);
+}
+
+.clockify-row-status [data-status='review'] {
+	color: #745220;
+}
+
+.clockify-row-status [data-status='invalid'] {
+	color: #88272b;
+}
+
+.clockify-issues {
+	margin: 0.6rem 0 0;
+	padding-inline-start: 2rem;
+}
+
+.clockify-row-values {
+	margin-block-start: 0.65rem;
+	padding-inline-start: 1rem;
+}
+
+.clockify-source-fields {
+	margin-block-start: 0.65rem;
+	padding-inline-start: 1rem;
+}
+
+.clockify-source-description {
+	white-space: pre-wrap;
+}

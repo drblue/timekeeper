@@ -16,6 +16,7 @@ import { registerCatalog } from './catalog/routes.ts';
 import type { CatalogStore } from './catalog/store.ts';
 import { registerEntries } from './entries/routes.ts';
 import type { EntryStore } from './entries/store.ts';
+import { registerClockifyImport } from './imports/routes.ts';
 import { registerReportJobs, registerReportSettings, registerReports } from './reports/routes.ts';
 import type { createReportPreview } from './reports/routes.ts';
 import type { createReportJobs } from './reports/jobs.ts';
@@ -147,6 +148,7 @@ export async function createApp({ webRoot, logger = false, auth, catalog, entrie
 	});
 
 	await registerAccountAccess(app, auth);
+	await registerClockifyImport(app);
 	if (catalog) {
 		registerCatalog(app, catalog);
 	}
@@ -204,7 +206,7 @@ export async function createApp({ webRoot, logger = false, auth, catalog, entrie
 				immutable: true,
 			});
 
-			for (const path of ['/', '/login', '/password', '/clients', '/projects', '/entries', '/entries/trash', '/entries/:entryId', '/reports/preview', '/settings/report']) {
+			for (const path of ['/', '/login', '/password', '/clients', '/projects', '/entries', '/entries/trash', '/entries/:entryId', '/reports/preview', '/settings/report', '/imports/clockify']) {
 				web.get(path, { schema: { hide: true } }, (_request, reply) => {
 					return reply.header('Cache-Control', 'no-cache').sendFile('index.html', webRoot, { cacheControl: false });
 				});
