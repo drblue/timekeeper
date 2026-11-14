@@ -1,15 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { parseClockifyImportCommitResponse, parseClockifyPreviewResponse } from '@timekeeper/contracts';
-import type { ClockifyImportReviewBody, ClockifyPreviewQuery } from '@timekeeper/contracts';
+import type { ClockifyCorrectionTargetsQuery, ClockifyImportReviewBody, ClockifyPreviewQuery } from '@timekeeper/contracts';
 import { writeForAccount } from '../account-write.ts';
 import { ApiRequestError } from '../api-error.ts';
-import { writeEntry } from '../entries/store.ts';
-import { timedInterval } from '../entries/timed-entry.ts';
+import { replaceEntry, writeEntry } from '../entries/store.ts';
 import type { PrismaClient } from '../generated/prisma/client.ts';
 import { writeWithReceipt } from '../operation-receipt.ts';
 import { createClockifyAssociations } from './clockify-association.ts';
 import { clockifyHash } from './clockify-identity.ts';
-import { planClockifyImport } from './clockify-plan.ts';
+import { correctionSnapshot, loadClockifyCorrectionEntry, prepareClockifyCorrection, searchClockifyCorrectionTargets } from './clockify-corrections.ts';
+import { clockifyEntryTime, planClockifyImport } from './clockify-plan.ts';
 import { previewClockify } from './clockify-preview.ts';
 
 const stageLifetime = 30 * 60 * 1_000;
@@ -36,6 +36,10 @@ function readInspection(snapshot: string) {
 
 export function createClockifyImportStore(database: PrismaClient, now: () => Date = () => new Date()) {
 	return {
+		correctionTargets(accountId: string, query: ClockifyCorrectionTargetsQuery) {
+			return database.$transaction((transaction) => searchClockifyCorrectionTargets(transaction, accountId, query));
+		},
+
 		async stage(accountId: string, bytes: Buffer, query: ClockifyPreviewQuery) {
 			const inspection = previewClockify(bytes, query);
 			if (inspection.requiresUserSelection) {
@@ -48,6 +52,10 @@ export function createClockifyImportStore(database: PrismaClient, now: () => Dat
 			return writeForAccount(database, accountId, async (transaction) => {
 				const instant = now();
 				await transaction.clockifyImportStage.deleteMany({ where: { accountId, expiresAt: { lte: instant } } });
+				const existing = await transaction.clockifyImportStage.findFirst({
+					where: { accountId, snapshot }, select: { id: true, expiresAt: true },
+				});
+				if (existing) return { stageId: existing.id, expiresAt: existing.expiresAt.toISOString(), inspection };
 				const active = await transaction.clockifyImportStage.count({ where: { accountId } });
 				if (active >= maxActiveStages) {
 					throw new ApiRequestError(429, 'CLOCKIFY_STAGE_LIMIT', 'Too many recent CSV stages. Wait for one to expire.');
@@ -68,7 +76,7 @@ export function createClockifyImportStore(database: PrismaClient, now: () => Dat
 				const plan = await planClockifyImport(transaction, accountId, readInspection(stage.snapshot), input);
 				if (!plan.review.canCommit) return { ...plan.review, previewToken: null, expiresAt: null };
 				const decisions = JSON.stringify(input);
-				const planHash = clockifyHash([2, stage.id, plan]);
+				const planHash = clockifyHash([3, stage.id, plan]);
 				if (Buffer.byteLength(decisions) > maxClockifyReviewBytes) {
 					throw new ApiRequestError(422, 'CLOCKIFY_IMPORT_TOO_LARGE', 'Choose a smaller selection to review.');
 				}
@@ -101,22 +109,39 @@ export function createClockifyImportStore(database: PrismaClient, now: () => Dat
 				const inspection = readInspection(preview.stage.snapshot);
 				const decisions = JSON.parse(preview.decisions) as ClockifyImportReviewBody;
 				const plan = await planClockifyImport(transaction, accountId, inspection, decisions);
-				if (!plan.review.canCommit || clockifyHash([2, preview.stageId, plan]) !== preview.planHash) previewChanged();
+				if (!plan.review.canCommit || clockifyHash([3, preview.stageId, plan]) !== preview.planHash) previewChanged();
 				const { counts } = plan.review;
-				const batchId = plan.entries.length ? randomUUID() : null;
+				const batchId = plan.entries.length || plan.corrections.length ? randomUUID() : null;
 				if (batchId) {
+					const batchSnapshot = { version: 1, sourceTimeZone: inspection.sourceTimeZone, decisions, review: plan.review };
+					const correctionUpdates = [];
 					await transaction.clockifyImportBatch.create({ data: {
 						id: batchId, accountId, committedAt: instant,
-						snapshot: JSON.stringify({ version: 1, sourceTimeZone: inspection.sourceTimeZone, decisions, review: plan.review }),
+						snapshot: JSON.stringify(batchSnapshot),
 					} });
+					for (const planned of plan.corrections) {
+						const { target, update } = planned;
+						if (update) {
+							const current = await loadClockifyCorrectionEntry(transaction, accountId, target.entryId);
+							if (current.revision !== target.revision) previewChanged();
+							const { edit } = await prepareClockifyCorrection(transaction, accountId, current, update.description,
+								update.changeTime ? clockifyEntryTime(planned.time) : undefined, update.changeTime ? planned.time.kind : undefined);
+							const entry = await replaceEntry(transaction, current, edit.kind, edit.work, edit.billableAmountOre, edit.time, instant, key);
+							const after = await loadClockifyCorrectionEntry(transaction, accountId, entry.id);
+							correctionUpdates.push({ entryId: entry.id, before: update.before, after: correctionSnapshot(after) });
+						}
+						await transaction.clockifyImportAlias.create({ data: {
+							accountId, batchId, fingerprint: planned.fingerprint, occurrence: planned.occurrence,
+							candidateKey: planned.candidateKey, targetFingerprint: target.fingerprint, targetOccurrence: target.occurrence,
+							resolution: planned.resolution,
+							sourceSnapshot: JSON.stringify({ version: 1, source: planned.source, sourceTimeZone: inspection.sourceTimeZone,
+								sourceStartAt: planned.time.sourceStartAt, sourceEndAt: planned.time.sourceEndAt }),
+						} });
+					}
 					const createAssociation = createClockifyAssociations(transaction, accountId);
 					for (const planned of plan.entries) {
-						const { kind, sourceStartAt, sourceEndAt, localDate, durationSeconds } = planned.time;
-						const startAt = kind === 'timed' ? new Date(sourceStartAt) : null;
-						const endAt = kind === 'timed' ? new Date(sourceEndAt) : null;
-						const time = startAt && endAt && !planned.incomplete
-							? timedInterval(startAt, endAt)
-							: { localDate, durationSeconds, startAt, endAt, segments: [{ localDate, seconds: durationSeconds }] };
+						const { kind, sourceStartAt, sourceEndAt } = planned.time;
+						const time = clockifyEntryTime(planned.time, planned.incomplete);
 						const association = await createAssociation(planned.association);
 						const entry = await writeEntry(transaction, accountId, kind, time, {
 							...association, description: planned.description, billable: planned.billable,
@@ -128,10 +153,13 @@ export function createClockifyImportStore(database: PrismaClient, now: () => Dat
 							sourceSnapshot: JSON.stringify({ version: 1, source: planned.source, sourceTimeZone: inspection.sourceTimeZone, sourceStartAt, sourceEndAt }),
 						} });
 					}
+					if (correctionUpdates.length) await transaction.clockifyImportBatch.update({
+						where: { id: batchId, accountId }, data: { snapshot: JSON.stringify({ ...batchSnapshot, correctionUpdates }) },
+					});
 				}
 				await transaction.clockifyImportPreview.update({ where: { id: preview.id }, data: { consumedAt: instant } });
 				return { batchId, createdCount: counts.new, alreadyImportedCount: counts.alreadyImported, excludedCount: counts.excluded,
-					duplicateOmittedCount: counts.duplicateOmitted, incompleteCount: counts.incomplete, invoicedCount: counts.invoiced, serverNow: instant.toISOString() };
+					duplicateOmittedCount: counts.duplicateOmitted, keptExistingCount: counts.keptExisting, updatedExistingCount: counts.updatedExisting, incompleteCount: counts.incomplete, invoicedCount: counts.invoiced, serverNow: instant.toISOString() };
 			}, commitTimeoutMs);
 		},
 	};

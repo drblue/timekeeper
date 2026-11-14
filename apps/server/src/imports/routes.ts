@@ -1,7 +1,7 @@
 import {
 	ApiErrorResponse, ClockifyImportCommitBody, ClockifyImportCommitResponse, ClockifyImportReviewBody, ClockifyImportReviewResponse,
-	ClockifyPreviewQuery, ClockifyPreviewResponse, ClockifyStageResponse, TimerIdempotencyHeaders,
-	clockifyCommitPath, clockifyPreviewPath, clockifyReviewPath, clockifyStagePath, idempotencyKeyHeader, maxClockifyCsvBytes,
+	ClockifyCorrectionTargetsQuery, ClockifyCorrectionTargetsResponse, ClockifyPreviewQuery, ClockifyPreviewResponse, ClockifyStageResponse, TimerIdempotencyHeaders,
+	clockifyCommitPath, clockifyCorrectionTargetsPath, clockifyPreviewPath, clockifyReviewPath, clockifyStagePath, idempotencyKeyHeader, maxClockifyCsvBytes,
 } from '@timekeeper/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { previewClockify } from './clockify-preview.ts';
@@ -36,6 +36,11 @@ export async function registerClockifyImport(app: FastifyInstance, store?: Retur
 			...csvOptions,
 			schema: { ...csvSchema, operationId: 'stageClockifyImport', response: { 200: ClockifyStageResponse, ...errors } },
 		}, (request) => store.stage(request.accountSession!.accountId, request.body ?? Buffer.alloc(0), request.query));
+
+		clockify.get<{ Querystring: ClockifyCorrectionTargetsQuery }>(clockifyCorrectionTargetsPath, {
+			schema: { operationId: 'findClockifyCorrectionTargets', querystring: ClockifyCorrectionTargetsQuery,
+				response: { 200: ClockifyCorrectionTargetsResponse, ...errors } },
+		}, (request) => store.correctionTargets(request.accountSession!.accountId, request.query));
 
 		clockify.post<{ Body: ClockifyImportReviewBody }>(clockifyReviewPath, {
 			bodyLimit: maxClockifyReviewBytes,

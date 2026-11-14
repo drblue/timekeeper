@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-	authSessionPath, bulkEntryCommitPath, bulkEntryPreviewPath, clockifyCommitPath, clockifyPreviewPath, clockifyReviewPath, clockifyStagePath,
+	authSessionPath, bulkEntryCommitPath, bulkEntryPreviewPath, clockifyCommitPath, clockifyCorrectionTargetsPath, clockifyPreviewPath, clockifyReviewPath, clockifyStagePath,
 	csrfHeader, entriesPath, idempotencyKeyHeader, maxClockifyCsvBytes, maxClockifyRows, parseAuthSessionResponse, parseClockifyPreviewResponse,
-	parseClockifyImportCommitResponse, parseClockifyImportReviewResponse, parseClockifyStageResponse,
+	parseClockifyCorrectionTargetsResponse, parseClockifyImportCommitResponse, parseClockifyImportReviewResponse, parseClockifyStageResponse,
 } from '@timekeeper/contracts';
 import type { ClockifyImportReviewBody } from '@timekeeper/contracts';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -249,6 +249,7 @@ describe('Clockify mapping and import', () => {
 	beforeEach(async () => {
 		now = new Date('2026-11-14T12:00:00.000Z');
 		await database.clockifyImportStage.deleteMany();
+		await database.clockifyImportAlias.deleteMany();
 		await database.clockifyImportIdentity.deleteMany();
 		await database.clockifyImportBatch.deleteMany();
 		await database.operationReceipt.deleteMany();
@@ -302,6 +303,23 @@ describe('Clockify mapping and import', () => {
 			};
 		});
 	}
+
+	it('reuses an identical stage without extending expiry or consuming another stage slot', async () => {
+		const first = await stage([{}]);
+		now = new Date(now.getTime() + 60_000);
+		await stage([{ Description: 'Second' }]);
+		await stage([{ Description: 'Third' }]);
+		await stage([{ Description: 'Fourth' }]);
+		const repeated = await stage([{}]);
+		expect(repeated.stageId).toBe(first.stageId);
+		expect(repeated.expiresAt).toBe(first.expiresAt);
+		const newZone = await app.inject({
+			...auth, method: 'POST', url: clockifyStagePath + '?sourceTimeZone=UTC',
+			headers: { ...auth.headers, 'content-type': 'text/csv' }, payload: Buffer.from(csv([{}])),
+		});
+		expect(newZone.statusCode).toBe(429);
+		expect(newZone.json()).toMatchObject({ code: 'CLOCKIFY_STAGE_LIMIT' });
+	});
 
 	it('imports 29 reviewed rows with historical rates and 12 initial invoice marks, then skips reordered, overlapping and deleted work', async () => {
 		const records = sampleRows();
@@ -562,6 +580,182 @@ describe('Clockify mapping and import', () => {
 		expect(await database.clockifyImportIdentity.count()).toBe(3);
 		expect(await database.operationReceipt.count()).toBe(1);
 		expect((await database.client.findUniqueOrThrow({ where: { id: client.id } })).defaultRateOrePerHour).toBe(90000n);
+	});
+
+	it('updates a reviewed source change while preserving local billing, associations and exact allocation snapshots', async () => {
+		const staged = await stage([{ Description: 'Källa %_' }]);
+		const initial = await review({ stageId: staged.stageId, defaults, rows: [] });
+		expect((await commit(initial.previewToken)).statusCode).toBe(200);
+		const root = await database.clockifyImportIdentity.findFirstOrThrow();
+		const original = await database.entry.findUniqueOrThrow({ where: { id: root.entryId } });
+		await database.entry.update({ where: { id: root.entryId }, data: {
+			description: 'Local correction', revision: 2, assignedRateOrePerHour: 0n, billableAmountOre: 0n,
+		} });
+		await database.entryDayAllocation.updateMany({ where: { entryId: root.entryId }, data: { amountOre: 0n, calculationVersion: 4 } });
+		await database.project.update({ where: { id: original.projectId! }, data: { archivedAt: now } });
+		const incoming = await stage([{ Description: 'Revised source', Project: 'Source project change', Tags: 'invoiced' }]);
+		const input = { stageId: incoming.stageId, rows: [] };
+		const unresolved = await review(input);
+		expect(unresolved.rows[0]).toMatchObject({
+			status: 'blocked', issues: ['possible-correction'], correction: { candidateCount: 1, candidates: [{
+				entryId: root.entryId, revision: 2, description: 'Local correction', source: { description: 'Källa %_' },
+				rateOrePerHour: '0', projectName: 'Synthetic project', invoicedAt: null,
+			}] },
+		});
+		const approved = await review({ ...input, rows: [{ line: 2, correction: { mode: 'update', entryId: root.entryId, revision: 2 } }] });
+		expect(approved.rows[0]).toMatchObject({
+			status: 'updated-existing', correction: { proposed: { description: 'Revised source', amountOre: '0', durationSeconds: 3723, overlap: false } },
+		});
+		const key = randomUUID();
+		const response = await commit(approved.previewToken, key);
+		expect(response.statusCode, response.body).toBe(200);
+		const outcome = parseClockifyImportCommitResponse(response.json());
+		expect(outcome).toMatchObject({ createdCount: 0, updatedExistingCount: 1, keptExistingCount: 0 });
+		expect((await commit(approved.previewToken, key)).json()).toEqual(outcome);
+		expect(await database.entry.findUniqueOrThrow({ where: { id: root.entryId } })).toMatchObject({
+			description: 'Revised source', projectId: original.projectId, assignedRateOrePerHour: 0n, invoicedAt: null, revision: 3,
+		});
+		const batch = await database.clockifyImportBatch.findUniqueOrThrow({ where: { id: outcome.batchId! } });
+		expect(JSON.parse(batch.snapshot).correctionUpdates).toMatchObject([{
+			entryId: root.entryId, before: { entry: { revision: 2, description: 'Local correction' }, allocations: [{ seconds: 3723, amountOre: '0', calculationVersion: 4 }] },
+			after: { entry: { revision: 3, description: 'Revised source' }, allocations: [{ seconds: 3723, amountOre: '0', calculationVersion: 4 }] },
+		}]);
+		const repeated = await review(input);
+		expect(repeated.counts).toMatchObject({ alreadyImported: 1, new: 0, updatedExisting: 0 });
+		expect(await database.clockifyImportIdentity.count()).toBe(1);
+		expect(await database.clockifyImportAlias.count()).toBe(1);
+	});
+
+	it('uses the latest same-time update and keep aliases as source baselines without overwriting local work', async () => {
+		const original = await stage([{ Description: 'Original source' }]);
+		const initial = await review({ stageId: original.stageId, defaults, rows: [] });
+		expect((await commit(initial.previewToken)).statusCode).toBe(200);
+		const { entryId } = await database.clockifyImportIdentity.findFirstOrThrow();
+		const updated = await stage([{ Description: 'Corrected source' }]);
+		const approved = await review({
+			stageId: updated.stageId, rows: [{ line: 2, correction: { mode: 'update', entryId, revision: 1 } }],
+		});
+		expect((await commit(approved.previewToken)).statusCode).toBe(200);
+		await database.entry.update({ where: { id: entryId }, data: { description: 'Later local work', revision: 3 } });
+
+		const metadataOnly = await stage([{ Description: 'Corrected source', Task: 'Metadata' }]);
+		const metadataReview = await review({
+			stageId: metadataOnly.stageId, rows: [{ line: 2, correction: { mode: 'update', entryId, revision: 3 } }],
+		});
+		expect(metadataReview.rows[0]).toMatchObject({ status: 'blocked', issues: ['correction-no-change'], correction: {
+			selected: { source: { description: 'Corrected source' } }, proposed: { description: 'Later local work' },
+		} });
+		now = new Date(now.getTime() + 1_000);
+		const kept = await stage([{ Description: 'Source left unapplied', Task: 'Kept' }]);
+		const keptReview = await review({
+			stageId: kept.stageId, rows: [{ line: 2, correction: { mode: 'keep', entryId, revision: 3 } }],
+		});
+		expect((await commit(keptReview.previewToken)).json()).toMatchObject({ keptExistingCount: 1 });
+
+		now = new Date(now.getTime() + 30 * 60_000);
+		const afterKeep = await stage([{ Description: 'Source left unapplied', Task: 'New metadata' }]);
+		const keptBaseline = await review({
+			stageId: afterKeep.stageId, rows: [{ line: 2, correction: { mode: 'update', entryId, revision: 3 } }],
+		});
+		expect(keptBaseline.rows[0]).toMatchObject({ status: 'blocked', issues: ['correction-no-change'], correction: {
+			selected: { source: { description: 'Source left unapplied', task: 'Kept' } }, proposed: { description: 'Later local work' },
+		} });
+		expect(await database.entry.findUniqueOrThrow({ where: { id: entryId } })).toMatchObject({ description: 'Later local work', revision: 3 });
+	});
+
+	it('uses the latest accepted source for successive manual timestamp moves and retains independent local edits', async () => {
+		const originalStage = await stage([{ Description: 'Årlig %_ granskning' }]);
+		const original = await review({ stageId: originalStage.stageId, defaults, rows: [] });
+		expect((await commit(original.previewToken)).statusCode).toBe(200);
+		const root = await database.clockifyImportIdentity.findFirstOrThrow();
+		const search = await app.inject({ ...auth, url: clockifyCorrectionTargetsPath + '?' + new URLSearchParams({ search: 'a\u030arlig %_' }) });
+		expect(search.statusCode, search.body).toBe(200);
+		expect(parseClockifyCorrectionTargetsResponse(search.json()).candidates.map(({ entryId }) => entryId)).toEqual([root.entryId]);
+		expect((await app.inject({ url: clockifyCorrectionTargetsPath })).statusCode).toBe(401);
+
+		const shifted = { Description: 'Årlig %_ granskning', 'Start Time': '10:04:05', 'End Time': '11:06:08' };
+		const incoming = await stage([shifted]);
+		const unresolved = await review({ stageId: incoming.stageId, rows: [] });
+		expect(unresolved.rows[0]?.correction).toBeNull();
+		const manual = await review({
+			stageId: incoming.stageId, rows: [{ line: 2, correction: { mode: 'update', entryId: root.entryId, revision: 1 } }],
+		});
+		expect(manual.rows[0]).toMatchObject({ status: 'updated-existing', correction: { candidateCount: 0,
+			proposed: { startAt: '2024-02-29T09:04:05.000Z', endAt: '2024-02-29T10:06:08.000Z' } } });
+		expect((await commit(manual.previewToken)).statusCode).toBe(200);
+		await database.entry.update({ where: { id: root.entryId }, data: {
+			description: 'Independent local wording',
+			startAt: new Date('2024-02-29T12:04:05.000Z'), endAt: new Date('2024-02-29T13:06:08.000Z'), revision: 3,
+		} });
+		const later = await stage([{ ...shifted, 'Start Time': '11:04:05', 'End Time': '12:06:08' }]);
+		const laterInput = { stageId: later.stageId, rows: [{ line: 2,
+			correction: { mode: 'update', entryId: root.entryId, revision: 3 } as const,
+		}] };
+		const compared = await review(laterInput);
+		expect(compared.rows[0]).toMatchObject({ status: 'updated-existing', correction: {
+			candidateCount: 0, selected: { source: { startTime: '10:04:05' } },
+			proposed: { description: 'Independent local wording', startAt: '2024-02-29T10:04:05.000Z' },
+		} });
+		await database.entry.update({ where: { id: root.entryId }, data: { description: 'Concurrent edit', revision: 4 } });
+		const stale = await commit(compared.previewToken);
+		expect(stale.statusCode, stale.body).toBe(409);
+		expect(stale.json()).toMatchObject({ code: 'CLOCKIFY_PREVIEW_CHANGED' });
+		expect((await review(laterInput)).rows[0]).toMatchObject({ status: 'blocked', issues: ['correction-target-changed'],
+			correction: { selected: { revision: 4, description: 'Concurrent edit' } } });
+	});
+
+	it('keeps locked split lineage and resolves distinct duplicate correction slots without reviving work', async () => {
+		const records = [{ 'Start Date': '11/11/2026', 'Start Time': '23:30:00', 'End Date': '12/11/2026',
+			'End Time': '00:30:00', 'Duration (h)': '01:00:00' }];
+		const staged = await stage([...records, ...records]);
+		const input = { stageId: staged.stageId, defaults, rows: [] };
+		const group = (await review(input)).duplicateGroups[0]!;
+		const two = await review({ ...input, multiplicities: [{ fingerprint: group.fingerprint, count: 2 }] });
+		expect((await commit(two.previewToken)).statusCode).toBe(200);
+		const roots = await database.clockifyImportIdentity.findMany({ orderBy: { occurrence: 'asc' } });
+		const split = await request(bulkEntryPreviewPath, {
+			action: 'mark-invoiced', splitOutsideRange: true, filters: { from: '2026-11-11', to: '2026-11-11' },
+			selection: { mode: 'explicit', entryIds: [roots[0]!.entryId] },
+		});
+		expect((await request(bulkEntryCommitPath, { previewToken: split.json().previewToken }, randomUUID())).statusCode).toBe(200);
+		expect((await request(`${entriesPath}/${roots[1]!.entryId}/delete`, { revision: 1 })).statusCode).toBe(200);
+		const corrected = { ...records[0], Description: 'Possible replacement' };
+		const later = await stage([corrected, corrected]);
+		const unresolved = await review({ stageId: later.stageId, rows: [] });
+		expect(unresolved.rows[0]?.correction?.candidates.map(({ state }) => state).sort()).toEqual(['deleted', 'split']);
+		const { fingerprint } = unresolved.duplicateGroups[0]!;
+		const selected = { stageId: later.stageId, multiplicities: [{ fingerprint, count: 2 }] };
+		const locked = await review({ ...selected, rows: roots.map(({ entryId }, index) => ({
+			line: index + 2, correction: { mode: 'update', entryId, revision: 2 },
+		})) });
+		expect(locked.rows.map(({ issues }) => issues)).toEqual([['correction-target-locked'], ['correction-target-locked']]);
+		const reused = await review({ ...selected, rows: [2, 3].map((line) => ({
+			line, correction: { mode: 'keep', entryId: roots[0]!.entryId, revision: 2 },
+		})) });
+		expect(reused.rows[1]?.issues).toEqual(['correction-target-reused']);
+		const kept = await review({ ...selected, rows: roots.map(({ entryId }, index) => ({
+			line: index + 2, correction: { mode: 'keep', entryId, revision: 2 },
+		})) });
+		expect((await commit(kept.previewToken)).json()).toMatchObject({ createdCount: 0, keptExistingCount: 2 });
+		const aliases = await database.clockifyImportAlias.findMany({ orderBy: { occurrence: 'asc' } });
+		expect(aliases.map(({ occurrence, targetOccurrence }) => [occurrence, targetOccurrence])).toEqual([[1, 1], [2, 2]]);
+		expect((await review({ stageId: later.stageId, rows: [] })).counts).toMatchObject({ alreadyImported: 2, new: 0 });
+		expect(await database.entry.count()).toBe(4);
+	});
+
+	it('imports a possible correction separately only after an explicit decision', async () => {
+		const staged = await stage([{}]);
+		const first = await review({ stageId: staged.stageId, defaults, rows: [] });
+		expect((await commit(first.previewToken)).statusCode).toBe(200);
+		const incoming = await stage([{ Description: 'Explicit independent work' }]);
+		const separated = await review({ stageId: incoming.stageId, defaults: { billing: historicalBilling, association: noAssociation },
+			rows: [{ line: 2, correction: { mode: 'separate' } }],
+		});
+		expect(separated.rows[0]?.status).toBe('new');
+		expect((await commit(separated.previewToken)).json()).toMatchObject({ createdCount: 1 });
+		expect(await database.clockifyImportIdentity.count()).toBe(2);
+		expect(await database.clockifyImportAlias.count()).toBe(0);
+		expect((await review({ stageId: incoming.stageId, rows: [] })).counts.alreadyImported).toBe(1);
 	});
 
 	it('identifies same-name mappings in the review and rejects an excessive allocation plan', async () => {

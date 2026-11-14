@@ -1,5 +1,7 @@
 import type { ClockifyImportReviewBody, ClockifyPreviewRow, ClockifyTimestamp } from '@timekeeper/contracts';
 import { useId, useRef, useState } from 'react';
+import { ClockifyCorrectionFields } from './clockify-corrections';
+import type { CorrectionDraft } from './clockify-corrections';
 import { ClockifyMapping } from './clockify-mapping';
 import type { Mapping } from './clockify-mapping';
 import type { ClockifyCatalog } from './clockify-catalog';
@@ -9,7 +11,7 @@ import { formatSek, parseHourlyRate } from './money';
 type RowDecision = ClockifyImportReviewBody['rows'][number];
 type Billing = NonNullable<NonNullable<ClockifyImportReviewBody['defaults']>['billing']>;
 export type BillingDraft = { mode: '' | 'billable' | 'non-billable'; rate: string };
-export type RowDraft = Omit<RowDecision, 'line' | 'association' | 'billing'> & { mapping?: Mapping; billing?: BillingDraft };
+export type RowDraft = Omit<RowDecision, 'line' | 'association' | 'billing' | 'correction'> & { mapping?: Mapping; billing?: BillingDraft; correction?: CorrectionDraft };
 export const emptyBilling: BillingDraft = { mode: '', rate: '' };
 
 export function billingChoice(draft: BillingDraft): Billing | undefined {
@@ -53,7 +55,13 @@ const issueLabels: Record<string, string> = {
 	'ambiguous-end': 'Choose which occurrence of the end time to use.',
 	'duration-mismatch': 'Choose how to resolve the time and duration mismatch.',
 	'invalid-interval': 'The selected times do not make a positive interval.',
-	'possible-correction': 'This row may be a correction to work already imported. Exclude it for now.',
+	'possible-correction': 'This row may be a correction to previously imported work. Choose how to resolve it.',
+	'correction-target-changed': 'The saved entry changed. Select the current version and review again.',
+	'correction-target-locked': 'The saved entry is locked. Keep it or import a separate entry.',
+	'correction-target-reused': 'Another row already targets this entry. Choose a different resolution.',
+	'correction-overlap': 'The proposed time overlaps saved work. Review the overlap before approving it.',
+	'correction-no-change': 'The saved entry already has these values. Choose Keep existing entry to remember this row.',
+	'invalid-correction': 'This correction cannot be applied. Review the timing and choose a different resolution.',
 	'missing-association': 'Choose a client and project mapping, or choose no client or project.',
 	'invalid-association': 'Review this client and project mapping.',
 	'missing-billing': 'Choose historical billing for this row.',
@@ -134,16 +142,24 @@ function MappingRow({ row, draft, onChange, catalog, mapping, issues }: {
 									</select>
 								</div>
 							) : null}
-							<label className="catalog-checkbox"><input type="checkbox" checked={draft.acceptIncomplete ?? false}
-								onChange={(event) => onChange({ ...draft, acceptIncomplete: event.target.checked })} />
-								Accept missing description or rate as incomplete</label>
-							<ClockifyBilling billing={draft.billing ?? emptyBilling} label={'Billing for line ' + row.line} inherited
-								onChange={(billing) => onChange({ ...draft, billing })} />
-							<label className="catalog-checkbox"><input type="checkbox" checked={!!draft.mapping}
-								onChange={(event) => onChange({ ...draft, mapping: event.target.checked ? mapping : undefined })} />
-								Override client and project for this row</label>
-							{draft.mapping ? <ClockifyMapping mapping={draft.mapping} catalog={catalog} label={'Mapping for line ' + row.line}
-								onChange={(next) => onChange({ ...draft, mapping: next })} /> : null}
+							<details>
+								<summary>Match to previously imported work</summary>
+								<ClockifyCorrectionFields row={row} draft={draft.correction} onChange={(correction) => onChange({ ...draft, correction })} />
+							</details>
+							{draft.correction?.mode !== 'keep' && draft.correction?.mode !== 'update' ? (
+								<>
+								<label className="catalog-checkbox"><input type="checkbox" checked={draft.acceptIncomplete ?? false}
+									onChange={(event) => onChange({ ...draft, acceptIncomplete: event.target.checked })} />
+									Accept missing description or rate as incomplete</label>
+								<ClockifyBilling billing={draft.billing ?? emptyBilling} label={'Billing for line ' + row.line} inherited
+									onChange={(billing) => onChange({ ...draft, billing })} />
+								<label className="catalog-checkbox"><input type="checkbox" checked={!!draft.mapping}
+									onChange={(event) => onChange({ ...draft, mapping: event.target.checked ? mapping : undefined })} />
+									Override client and project for this row</label>
+								{draft.mapping ? <ClockifyMapping mapping={draft.mapping} catalog={catalog} label={'Mapping for line ' + row.line}
+									onChange={(next) => onChange({ ...draft, mapping: next })} /> : null}
+								</>
+							) : null}
 						</>
 					) : null}
 				</div>

@@ -12,6 +12,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ApiRequestError, readApi, requestError, writeApi } from './api';
 import { authError, useSession } from './auth';
 import { catalogKey, catalogPaths } from './catalog';
+import { ClockifyCorrectionFields, correctionDecision, isIncompleteCorrection } from './clockify-corrections';
+import type { CorrectionDraft } from './clockify-corrections';
 import { ClockifyDuplicateGroups } from './clockify-duplicate-groups';
 import { clockifyCatalogLabels } from './clockify-catalog';
 import type { ClockifyCatalog } from './clockify-catalog';
@@ -63,6 +65,7 @@ function importError(cause: unknown) {
 			case 'CLOCKIFY_PREVIEW_EXPIRED':
 				return 'This review expired. Review the import again before confirming.';
 			case 'CLOCKIFY_STAGE_LIMIT':
+				return 'Too many files are staged. Wait for an earlier staged file to expire and try again.';
 			case 'CLOCKIFY_PREVIEW_LIMIT':
 				return 'There are too many active import reviews. Wait for an earlier review to expire and try again.';
 			case 'CLOCKIFY_INVALID_MULTIPLICITY':
@@ -84,6 +87,8 @@ function ReviewCounts({ counts }: { counts: ClockifyImportReviewResponse['counts
 			<div><dt>New entries</dt><dd>{counts.new}</dd></div>
 			<div><dt>Already imported</dt><dd>{counts.alreadyImported}</dd></div>
 			<div><dt>Excluded</dt><dd>{counts.excluded}</dd></div>
+			{counts.keptExisting ? <div><dt>Kept existing</dt><dd>{counts.keptExisting}</dd></div> : null}
+			{counts.updatedExisting ? <div><dt>Updated existing</dt><dd>{counts.updatedExisting}</dd></div> : null}
 			{counts.duplicateOmitted ? <div><dt>Identical copies omitted</dt><dd>{counts.duplicateOmitted}</dd></div> : null}
 			<div><dt>Blocked</dt><dd>{counts.blocked}</dd></div>
 			<div><dt>Incomplete</dt><dd>{counts.incomplete}</dd></div>
@@ -94,9 +99,9 @@ function ReviewCounts({ counts }: { counts: ClockifyImportReviewResponse['counts
 
 const commitRejections = new Set(['CLOCKIFY_PREVIEW_CHANGED', 'CLOCKIFY_PREVIEW_EXPIRED', 'CLOCKIFY_PREVIEW_NOT_FOUND', 'IDEMPOTENCY_CONFLICT']);
 
-const disposition = { new: 'New entry', 'already-imported': 'Already imported', excluded: 'Excluded', 'duplicate-omitted': 'Identical copy omitted', blocked: 'Blocked' } as const;
+const disposition = { new: 'New entry', 'already-imported': 'Already imported', excluded: 'Excluded', 'duplicate-omitted': 'Identical copy omitted', 'kept-existing': 'Keep existing entry', 'updated-existing': 'Update existing entry', blocked: 'Blocked' } as const;
 
-function ImportReview({ review, rows, catalog, pending, error, duplicateCounts, onDuplicateCount, onUpdateReview, onConfirm, onEdit }: {
+function ImportReview({ review, rows, catalog, pending, error, duplicateCounts, onDuplicateCount, correctionDrafts, correctionsDirty, onCorrection, onUpdateReview, onConfirm, onEdit }: {
 	review: ClockifyImportReviewResponse;
 	rows: ClockifyPreviewRow[];
 	catalog: ClockifyCatalog;
@@ -104,6 +109,9 @@ function ImportReview({ review, rows, catalog, pending, error, duplicateCounts, 
 	error: string;
 	duplicateCounts: Record<string, number>;
 	onDuplicateCount: (fingerprint: string, count: number) => void;
+	correctionDrafts: Record<number, RowDraft>;
+	correctionsDirty: boolean;
+	onCorrection: (line: number, draft: CorrectionDraft) => void;
 	onUpdateReview: () => void;
 	onConfirm: () => void;
 	onEdit: () => void;
@@ -111,7 +119,7 @@ function ImportReview({ review, rows, catalog, pending, error, duplicateCounts, 
 	const heading = useRef<HTMLHeadingElement>(null);
 	const reviewError = useRef<HTMLParagraphElement>(null);
 	const sources = new Map(rows.map((row) => [row.line, row]));
-	const dirty = review.duplicateGroups.some((group) =>
+	const dirty = correctionsDirty || review.duplicateGroups.some((group) =>
 		(duplicateCounts[group.fingerprint] ?? group.selectedCount) !== group.selectedCount);
 	const invalid = review.duplicateGroups.some((group) => {
 		const count = duplicateCounts[group.fingerprint] ?? group.selectedCount;
@@ -119,6 +127,9 @@ function ImportReview({ review, rows, catalog, pending, error, duplicateCounts, 
 	});
 	const sorted = [...review.rows].sort((a, b) => Number(b.status === 'blocked') - Number(a.status === 'blocked') || a.line - b.line);
 	const [limit, setLimit] = useState(20);
+	const [correctionLimit, setCorrectionLimit] = useState(5);
+	const corrections = sorted.filter((row) => row.correction || !!correctionDrafts[row.line]?.correction?.mode);
+	const invalidCorrection = corrections.some((row) => isIncompleteCorrection(correctionDrafts[row.line]?.correction));
 	const approved = review.rows.flatMap((row) => row.approved ? [row.approved] : []);
 	const labelClient = clockifyCatalogLabels([
 		...catalog.clients,
@@ -144,9 +155,30 @@ function ImportReview({ review, rows, catalog, pending, error, duplicateCounts, 
 				<ClockifyDuplicateGroups groups={review.duplicateGroups} rows={sources} counts={duplicateCounts} disabled={pending}
 					onChange={(group, count) => onDuplicateCount(group.fingerprint, count)} />
 			) : null}
+			{corrections.length ? (
+				<div className="clockify-correction-list">
+					<h3>Possible corrections</h3>
+					<ul className="clockify-rows">
+						{corrections.slice(0, correctionLimit).map((item, index) => {
+							const row = sources.get(item.line);
+							return row ? (
+								<li key={item.line} className="clockify-row">
+									<details open={index === 0}>
+										<summary>Line {item.line} · {row.source?.description.trim() || 'Untitled row'} · {disposition[item.status]}</summary>
+										{item.issues.length ? <ClockifyImportIssues issues={item.issues} /> : null}
+										<ClockifyCorrectionFields row={row} review={item.correction} draft={correctionDrafts[item.line]?.correction}
+											onChange={(draft) => onCorrection(item.line, draft)} disabled={pending} />
+									</details>
+								</li>
+							) : null;
+						})}
+					</ul>
+					{correctionLimit < corrections.length ? <button type="button" onClick={() => setCorrectionLimit(correctionLimit + 5)}>Show more corrections</button> : null}
+				</div>
+			) : null}
 			{dirty ? <p className="feedback warning" role="status">{invalid
 				? 'Enter a whole number from 1 to the number of identical rows.'
-				: 'Update the review to see which entries will be imported.'}</p> : null}
+				: 'Update the review to see the effects of these choices.'}</p> : null}
 			{review.createClients.length || review.createProjects.length ? (
 				<div className="clockify-review-catalog">
 					<h3>Catalog records to create</h3>
@@ -160,7 +192,7 @@ function ImportReview({ review, rows, catalog, pending, error, duplicateCounts, 
 				</div>
 			) : null}
 			{review.counts.blocked ? <p className="feedback warning" role="status">Resolve or explicitly exclude blocked rows before importing.</p> : null}
-			{review.canCommit && !review.counts.new ? <p className="field-hint">This selection has no new entries to import.</p> : null}
+			{review.canCommit && !review.counts.new && !review.counts.keptExisting && !review.counts.updatedExisting ? <p className="field-hint">This selection has no new entries to import.</p> : null}
 			<details open={review.counts.blocked > 0}>
 				<summary>Review source rows</summary>
 				<ul className="clockify-rows">
@@ -187,12 +219,12 @@ function ImportReview({ review, rows, catalog, pending, error, duplicateCounts, 
 				{limit < sorted.length ? <button type="button" onClick={() => setLimit(limit + 20)}>Show more rows</button> : null}
 			</details>
 			<div className="form-actions">
-				{dirty ? <button type="button" className="primary" disabled={pending || invalid} onClick={onUpdateReview}>
+				{dirty ? <button type="button" className="primary" disabled={pending || invalid || invalidCorrection} onClick={onUpdateReview}>
 					{pending ? 'Updating review…' : 'Update review'}
 				</button> : null}
 				{!dirty && review.canCommit && review.previewToken ? (
 					<button type="button" className="primary" disabled={pending} onClick={onConfirm}>
-						{review.counts.new ? 'Confirm import' : 'Confirm no changes'}
+						{review.counts.new || review.counts.keptExisting || review.counts.updatedExisting ? 'Confirm import' : 'Confirm no changes'}
 					</button>
 				) : null}
 				<button type="button" disabled={pending} onClick={onEdit}>Edit import choices</button>
@@ -206,9 +238,10 @@ function ImportResult({ result, onBack }: { result: ClockifyImportCommitResponse
 	useLayoutEffect(() => heading.current?.focus(), []);
 	return (
 		<section className="panel report-section" aria-labelledby="clockify-complete-heading">
-			<h2 id="clockify-complete-heading" ref={heading} tabIndex={-1}>{result.createdCount ? 'Import complete' : 'No new entries imported'}</h2>
+			<h2 id="clockify-complete-heading" ref={heading} tabIndex={-1}>{result.createdCount || result.keptExistingCount || result.updatedExistingCount ? 'Import complete' : 'No new entries imported'}</h2>
 			<ReviewCounts counts={{ new: result.createdCount, alreadyImported: result.alreadyImportedCount, excluded: result.excludedCount,
-				blocked: 0, incomplete: result.incompleteCount, invoiced: result.invoicedCount, duplicateOmitted: result.duplicateOmittedCount ?? 0 }} />
+				blocked: 0, incomplete: result.incompleteCount, invoiced: result.invoicedCount, duplicateOmitted: result.duplicateOmittedCount ?? 0,
+				keptExisting: result.keptExistingCount ?? 0, updatedExisting: result.updatedExistingCount ?? 0 }} />
 			<div className="form-actions"><button type="button" onClick={onBack}>Inspect another file</button></div>
 		</section>
 	);
@@ -232,6 +265,7 @@ export function ClockifyImport({ file, inspection, onBack, onFinished, pending, 
 	const [billing, setBilling] = useState(emptyBilling);
 	const [rows, setRows] = useState<Record<number, RowDraft>>({});
 	const [review, setReview] = useState<ClockifyImportReviewResponse>();
+	const [correctionsDirty, setCorrectionsDirty] = useState(false);
 	const [duplicateCounts, setDuplicateCounts] = useState<Record<string, number>>({});
 	const [previousIssues, setPreviousIssues] = useState(new Map<number, string[]>());
 	const [result, setResult] = useState<ClockifyImportCommitResponse>();
@@ -318,7 +352,11 @@ export function ClockifyImport({ file, inspection, onBack, onFinished, pending, 
 
 	function buildReview(): ClockifyImportReviewBody {
 		if (!stage) throw new Error('Inspect the file again.');
-		const defaultBilling = billingChoice(billing);
+		const hasNewChoices = stage.inspection.rows.some((row) => {
+			const draft = rows[row.line];
+			return row.source && !draft?.exclude && draft?.correction?.mode !== 'keep' && draft?.correction?.mode !== 'update';
+		});
+		const defaultBilling = hasNewChoices ? billingChoice(billing) : undefined;
 		const multiplicities = Object.entries(duplicateCounts).map(([fingerprint, count]) => ({ fingerprint, count }));
 		return {
 			stageId: stage.stageId,
@@ -327,11 +365,14 @@ export function ClockifyImport({ file, inspection, onBack, onFinished, pending, 
 			rows: stage.inspection.rows.flatMap<ClockifyImportRowDecision>((row) => {
 				const draft = rows[row.line] ?? {};
 				if (draft.exclude) return [{ line: row.line, exclude: true }];
-				const { mapping, billing: rowBilling, ...decisions } = draft;
+				const { mapping, billing: rowBilling, correction: correctionDraft, ...decisions } = draft;
+				if (isIncompleteCorrection(correctionDraft)) throw new Error('Choose a matching entry for line ' + row.line + '.');
+				const correction = correctionDecision(correctionDraft);
+				if (correction?.mode === 'keep' || correction?.mode === 'update') return [{ line: row.line, ...decisions, correction }];
 				const association = row.source ? mappingChoice(mapping ?? mappingFor(row), catalog) : undefined;
 				if (row.source && (mapping || useBulkMapping) && !association) throw new Error('Complete the client and project override for line ' + row.line + '.');
 				const billing = rowBilling ? billingChoice(rowBilling) : undefined;
-				return [{ line: row.line, ...decisions, association, billing }];
+				return [{ line: row.line, ...decisions, association, billing, correction }];
 			}),
 		};
 	}
@@ -359,6 +400,7 @@ export function ClockifyImport({ file, inspection, onBack, onFinished, pending, 
 				const count = previous[group.fingerprint];
 				return count === group.selectedCount ? [[group.fingerprint, count]] : [];
 			})));
+			setCorrectionsDirty(false);
 			setReview(next);
 		} catch (cause) {
 			if (!controller.signal.aborted) {
@@ -430,7 +472,12 @@ export function ClockifyImport({ file, inspection, onBack, onFinished, pending, 
 
 	if (result) return <ImportResult result={result} onBack={onFinished} />;
 	if (review && !pending) return <ImportReview review={review} rows={stageRows} catalog={catalog} pending={!!busy}
-		error={error} duplicateCounts={duplicateCounts} onEdit={edit} onUpdateReview={() => void reviewImport()}
+		error={error} duplicateCounts={duplicateCounts} correctionDrafts={rows} correctionsDirty={correctionsDirty}
+		onCorrection={(line, correction) => {
+			setRows((previous) => ({ ...previous, [line]: { ...previous[line], correction } }));
+			setCorrectionsDirty(true);
+			setError('');
+		}} onEdit={edit} onUpdateReview={() => void reviewImport()}
 		onDuplicateCount={(fingerprint, count) => {
 			setError('');
 			setDuplicateCounts({ ...duplicateCounts, [fingerprint]: count });

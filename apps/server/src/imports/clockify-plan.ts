@@ -5,17 +5,36 @@ import type {
 } from '@timekeeper/contracts';
 import { ApiRequestError } from '../api-error.ts';
 import { parseHourlyRateOre } from '../billing.ts';
+import { timedInterval } from '../entries/timed-entry.ts';
 import { entryBilling } from '../entries/entry-record.ts';
 import { workDescription } from '../entries/work-settings.ts';
 import type { Prisma } from '../generated/prisma/client.ts';
 import { validLocalDate } from '../local-date.ts';
 import { clockifyCatalogCreations, readClockifyAssociations } from './clockify-association.ts';
 import type { ResolvedClockifyAssociation } from './clockify-association.ts';
+import { clockifyTargetsByEntryIds, correctionCandidate, correctionFields, correctionSnapshot, countClockifyCorrectionAllocations, loadClockifyCorrectionEntry, prepareClockifyCorrection, relevantCorrectionSource } from './clockify-corrections.ts';
+import type { ClockifyClaim } from './clockify-identity.ts';
 import { clockifyIdentity, previousClockifyIdentities } from './clockify-identity.ts';
 
 const maxImportAllocations = 8_000;
+const maxCorrectionRows = 100;
+const maxCorrectionDetailsBytes = 8 * 1024 * 1024;
+const maxCorrectionSavedAllocations = 8_000;
 type Review = Omit<ClockifyImportReviewResponse, 'previewToken' | 'expiresAt'>;
 type ReviewRow = Review['rows'][number];
+type CorrectionReview = NonNullable<ReviewRow['correction']>;
+
+export interface ClockifyPlannedCorrection extends SourceRecord {
+	occurrence: number;
+	resolution: 'keep' | 'update';
+	target: {
+		entryId: string;
+		revision: number;
+		fingerprint: string;
+		occurrence: number;
+	};
+	update: { description: string; changeTime: boolean; before: ReturnType<typeof correctionSnapshot> } | null;
+}
 
 interface SourceTime {
 	sourceStartAt: string;
@@ -41,6 +60,20 @@ export interface ClockifyPlannedEntry extends SourceRecord {
 	billable: boolean;
 	rateOrePerHour: string | null;
 	incomplete: boolean;
+}
+
+function clockifyAllocationDays({ kind, localDate, sourceEndAt }: SourceTime) {
+	if (kind === 'duration-only') return 1;
+	const endDate = formatStockholmLocalTime(new Date(Date.parse(sourceEndAt) - 1_000).toISOString()).local.slice(0, 10);
+	return calendarDaysInclusive(localDate, endDate);
+}
+
+export function clockifyEntryTime({ kind, localDate, durationSeconds, sourceStartAt, sourceEndAt }: SourceTime, incomplete = false) {
+	const startAt = kind === 'timed' ? new Date(sourceStartAt) : null;
+	const endAt = kind === 'timed' ? new Date(sourceEndAt) : null;
+	return startAt && endAt && !incomplete
+		? timedInterval(startAt, endAt)
+		: { localDate, durationSeconds, startAt, endAt, segments: [{ localDate, seconds: durationSeconds }] };
 }
 
 function chosenInstant(timestamp: ClockifyTimestamp | null, occurrence: 'earlier' | 'later' | undefined) {
@@ -69,7 +102,7 @@ function sourceRecord(row: ClockifyPreviewRow, decision: ClockifyImportRowDecisi
 }
 
 function reviewRow(row: ClockifyPreviewRow, status: ReviewRow['status'], issues: string[] = []): ReviewRow {
-	return { line: row.line, status, issues, incomplete: false, invoiced: row.invoicedTag === true, approved: null };
+	return { line: row.line, status, issues, incomplete: false, invoiced: row.invoicedTag === true, correction: null, approved: null };
 }
 
 function planOccurrences(
@@ -87,15 +120,16 @@ function planOccurrences(
 	}
 
 	const duplicateGroups: Review['duplicateGroups'] = [];
-	const existingSlots: { fingerprint: string; slots: number[] }[] = [];
+	const existingSlots: { fingerprint: string; claims: ClockifyClaim[] }[] = [];
 	const rowSlots = new Map<number, { occurrence: number; existing: boolean }>();
 	for (const [fingerprint, { candidateKey, lines }] of groups) {
-		const slots = previous.get(candidateKey)?.get(fingerprint) ?? [];
+		const claims = previous.get(candidateKey)?.get(fingerprint) ?? [];
+		const slots = claims.map(({ occurrence }) => occurrence);
 		const selectedCount = requestedCounts.get(fingerprint) ?? Math.min(lines.length, Math.max(1, slots.length));
 		if (lines.length > 1) {
 			duplicateGroups.push({ fingerprint, lines, existingCount: slots.length, selectedCount, newCount: Math.max(0, selectedCount - slots.length) });
 		}
-		if (slots.length) existingSlots.push({ fingerprint, slots });
+		if (slots.length) existingSlots.push({ fingerprint, claims });
 		const occupied = new Set(slots);
 		let vacant = 1;
 		for (const [index, line] of lines.slice(0, selectedCount).entries()) {
@@ -146,19 +180,122 @@ export async function planClockifyImport(
 	}
 
 	const { duplicateGroups, existingSlots, rowSlots } = planOccurrences(groups, previous, input.multiplicities ?? []);
+	const selectedTargetIds = analyzed.flatMap(({ decision, row, record }) => {
+		const choice = decision?.correction;
+		const slot = rowSlots.get(row.line);
+		return !decision?.exclude && !Array.isArray(record) && slot && !slot.existing && choice && choice.mode !== 'separate'
+			? [choice.entryId] : [];
+	});
+	const weakTargetIds = new Map<string, string[]>();
+	for (const { record, decision, row } of analyzed) {
+		const slot = rowSlots.get(row.line);
+		if (Array.isArray(record) || decision?.exclude || !slot || slot.existing || weakTargetIds.has(record.candidateKey)) continue;
+		const prior = previous.get(record.candidateKey);
+		if (!prior) continue;
+		const ids = [...new Set([...prior.values()].flatMap((claims) => claims.map(({ entryId }) => entryId)))].sort();
+		weakTargetIds.set(record.candidateKey, ids);
+	}
+	const comparedRows = analyzed.filter(({ row, record, decision }) => {
+		const slot = rowSlots.get(row.line);
+		return !Array.isArray(record) && slot && !slot.existing
+			&& (decision?.correction || (previous.get(record.candidateKey)?.size ?? 0) > (previous.get(record.candidateKey)?.has(record.fingerprint) ? 1 : 0)
+				|| (candidates.get(record.candidateKey)?.size ?? 0) > 1);
+	}).length;
+	if (comparedRows > maxCorrectionRows) {
+		throw new ApiRequestError(422, 'CLOCKIFY_IMPORT_TOO_LARGE', 'Review up to 100 correction rows in one import.');
+	}
+	const targets = await clockifyTargetsByEntryIds(transaction, accountId,
+		[...selectedTargetIds, ...[...weakTargetIds.values()].flatMap((ids) => ids.slice(0, 5))]);
 	const resolveAssociation = await readClockifyAssociations(transaction, accountId);
+	const corrections: ClockifyPlannedCorrection[] = [];
+	const correctedTargets = new Set<string>();
 	const entries: ClockifyPlannedEntry[] = [];
 	let allocations = 0;
-	const rows = analyzed.map(({ row, decision, record }): ReviewRow => {
+	let savedAllocations = 0;
+	const rows: ReviewRow[] = [];
+	function reserveAllocations(days: number) {
+		allocations += days;
+		if (allocations > maxImportAllocations) {
+			throw new ApiRequestError(422, 'CLOCKIFY_IMPORT_TOO_LARGE', 'Review a smaller selection. An import can create up to 8000 day allocations.');
+		}
+	}
+	let correctionBytes = 0;
+	for (const { row, decision, record } of analyzed) {
+		const planned = await planRow(row, decision, record);
+		if (planned.correction) {
+			correctionBytes += Buffer.byteLength(JSON.stringify(planned.correction));
+			if (correctionBytes > maxCorrectionDetailsBytes) {
+				throw new ApiRequestError(422, 'CLOCKIFY_IMPORT_TOO_LARGE', 'Review a smaller selection of correction details.');
+			}
+		}
+		rows.push(planned);
+	}
+
+	async function planRow(row: ClockifyPreviewRow, decision: ClockifyImportRowDecision | undefined, record: SourceRecord | string[]): Promise<ReviewRow> {
 		if (decision?.exclude) return reviewRow(row, 'excluded');
 		if (Array.isArray(record)) return reviewRow(row, 'blocked', record);
 		const slot = rowSlots.get(record.line);
 		if (!slot) return reviewRow(row, 'duplicate-omitted');
 		if (slot.existing) return reviewRow(row, 'already-imported');
 		const prior = previous.get(record.candidateKey);
-		const exactPriorCount = prior?.has(record.fingerprint) ? 1 : 0;
-		if ((prior?.size ?? 0) > exactPriorCount || (candidates.get(record.candidateKey)?.size ?? 0) > 1) {
-			return reviewRow(row, 'blocked', ['possible-correction']);
+		const exactClaims = prior?.get(record.fingerprint) ?? [];
+		const exactPriorCount = exactClaims.length > 0 ? 1 : 0;
+		const possibleCorrection = (prior?.size ?? 0) > exactPriorCount || (candidates.get(record.candidateKey)?.size ?? 0) > 1;
+		const choice = decision?.correction;
+		if (possibleCorrection || (choice && choice.mode !== 'separate')) {
+			const weakIds = weakTargetIds.get(record.candidateKey) ?? [];
+			const correction: CorrectionReview = {
+				candidateCount: weakIds.length, candidates: weakIds.slice(0, 5).flatMap((id) => {
+					const target = targets.get(id);
+					return target ? [correctionCandidate(target)] : [];
+				}),
+				selected: null, proposed: null,
+			};
+			if (!choice) return { ...reviewRow(row, 'blocked', ['possible-correction']), correction };
+			if (choice.mode !== 'separate') {
+				const target = targets.get(choice.entryId);
+				if (!target) return { ...reviewRow(row, 'blocked', ['correction-target-changed']), correction };
+				const baseline = await relevantCorrectionSource(transaction, accountId, target, record.fingerprint);
+				correction.selected = correctionCandidate(target, baseline);
+				if (target.entry.revision !== choice.revision) {
+					return { ...reviewRow(row, 'blocked', ['correction-target-changed']), correction };
+				}
+				if (exactClaims.some(({ entryId }) => entryId === target.entryId) || correctedTargets.has(target.entryId)) {
+					return { ...reviewRow(row, 'blocked', ['correction-target-reused']), correction };
+				}
+				if (choice.mode === 'update' && (correction.selected.state !== 'active')) {
+					return { ...reviewRow(row, 'blocked', ['correction-target-locked']), correction };
+				}
+				let update: ClockifyPlannedCorrection['update'] = null;
+				if (choice.mode === 'update') {
+					const changed = correctionFields(baseline, record.source, record.time);
+					const description = changed.descriptionChanged ? record.source.description : target.entry.description;
+					if (changed.timeChanged) reserveAllocations(clockifyAllocationDays(record.time));
+					savedAllocations += await countClockifyCorrectionAllocations(transaction, accountId, target.entryId);
+					if (savedAllocations > maxCorrectionSavedAllocations) {
+						throw new ApiRequestError(422, 'CLOCKIFY_IMPORT_TOO_LARGE', 'Review corrections for up to 8000 previously saved day allocations at a time.');
+					}
+					const current = await loadClockifyCorrectionEntry(transaction, accountId, target.entryId);
+					try {
+						const time = changed.timeChanged ? clockifyEntryTime(record.time) : undefined;
+						const { edit, proposal } = await prepareClockifyCorrection(transaction, accountId, current, description, time,
+							changed.timeChanged ? record.time.kind : undefined);
+						correction.proposed = proposal;
+						if (edit.overlap && !choice.confirmOverlap) {
+							return { ...reviewRow(row, 'blocked', ['correction-overlap']), correction };
+						}
+						if (!edit.changed) return { ...reviewRow(row, 'blocked', ['correction-no-change']), correction };
+						update = { description, changeTime: changed.timeChanged, before: correctionSnapshot(current) };
+					} catch (error) {
+						if (!(error instanceof ApiRequestError)) throw error;
+						return { ...reviewRow(row, 'blocked', ['invalid-correction']), correction };
+					}
+				}
+				correctedTargets.add(target.entryId);
+				corrections.push({ ...record, occurrence: slot.occurrence, resolution: choice.mode,
+					target: { entryId: target.entryId, revision: target.entry.revision, fingerprint: target.fingerprint, occurrence: target.occurrence }, update });
+				return { ...reviewRow(row, choice.mode === 'keep' ? 'kept-existing' : 'updated-existing'), correction };
+			}
 		}
 
 		const issues: string[] = [];
@@ -192,13 +329,7 @@ export async function planClockifyImport(
 		if (incomplete && !decision?.acceptIncomplete) issues.push('incomplete-not-approved');
 		if (issues.length || typeof association === 'string') return { ...reviewRow(row, 'blocked', issues), incomplete };
 
-		if (!incomplete) {
-			const endDate = kind === 'timed' ? formatStockholmLocalTime(new Date(Date.parse(sourceEndAt) - 1_000).toISOString()).local.slice(0, 10) : localDate;
-			allocations += calendarDaysInclusive(localDate, endDate);
-		}
-		if (allocations > maxImportAllocations) {
-			throw new ApiRequestError(422, 'CLOCKIFY_IMPORT_TOO_LARGE', 'Review a smaller selection. An import can create up to 8000 day allocations.');
-		}
+		if (!incomplete) reserveAllocations(clockifyAllocationDays(record.time));
 		const rateOrePerHour = rate?.toString() ?? null;
 		entries.push({ ...record, occurrence: slot.occurrence, association, description, billable, rateOrePerHour, incomplete });
 		return {
@@ -213,21 +344,42 @@ export async function planClockifyImport(
 				amountOre: calculated.billableAmountOre?.toString() ?? null,
 			},
 		};
-	});
+	}
+	// A correction can overlap work introduced by the same batch, which is not
+	// yet present in the database during review. Match the final batch intervals.
+	const plannedTimes = [...entries, ...corrections.filter(({ update }) => update?.changeTime)];
+	for (const correction of corrections) {
+		if (!correction.update?.changeTime || correction.time.kind !== 'timed') continue;
+		const row = rows.find(({ line }) => line === correction.line)!;
+		const proposal = row.correction?.proposed;
+		if (!proposal) continue;
+		const overlap = plannedTimes.some(({ line, time }) => line !== correction.line && time.kind === 'timed'
+			&& time.sourceStartAt < correction.time.sourceEndAt && time.sourceEndAt > correction.time.sourceStartAt);
+		if (!overlap) continue;
+		proposal.overlap = true;
+		const decision = decisions.get(correction.line)?.correction;
+		if (decision?.mode === 'update' && !decision.confirmOverlap) {
+			row.status = 'blocked';
+			row.issues = ['correction-overlap'];
+		}
+	}
+
 	const creations = clockifyCatalogCreations(entries.map(({ association }) => association));
 	if (creations.conflictingNames) {
 		throw new ApiRequestError(422, 'CLOCKIFY_INVALID_DECISIONS', 'Use one consistent spelling for each new client and project name.');
 	}
-	const counts = { new: 0, alreadyImported: 0, excluded: 0, duplicateOmitted: 0, blocked: 0, incomplete: 0, invoiced: 0 };
+	const counts = { new: 0, alreadyImported: 0, excluded: 0, duplicateOmitted: 0, keptExisting: 0, updatedExisting: 0, blocked: 0, incomplete: 0, invoiced: 0 };
 	for (const row of rows) {
 		if (row.status === 'already-imported') counts.alreadyImported += 1;
 		else if (row.status === 'duplicate-omitted') counts.duplicateOmitted += 1;
+		else if (row.status === 'kept-existing') counts.keptExisting += 1;
+		else if (row.status === 'updated-existing') counts.updatedExisting += 1;
 		else counts[row.status] += 1;
 		if (row.status === 'new' && row.incomplete) counts.incomplete += 1;
 		if (row.status === 'new' && row.invoiced) counts.invoiced += 1;
 	}
-	return { entries, existingSlots, review: {
-		canCommit: counts.blocked === 0 && (counts.new > 0 || counts.alreadyImported > 0), counts, rows, duplicateGroups,
+	return { entries, corrections, existingSlots, review: {
+		canCommit: counts.blocked === 0 && (counts.new > 0 || counts.alreadyImported > 0 || corrections.length > 0), counts, rows, duplicateGroups,
 		createClients: creations.clients, createProjects: creations.projects,
 	} };
 }

@@ -89,6 +89,7 @@ export function parseClockifyPreviewResponse(value: unknown): ClockifyPreviewRes
 
 export const clockifyStagePath = '/api/v1/imports/clockify/stage';
 export const clockifyReviewPath = '/api/v1/imports/clockify/review';
+export const clockifyCorrectionTargetsPath = '/api/v1/imports/clockify/correction-targets';
 export const clockifyCommitPath = '/api/v1/imports/clockify/commit';
 
 export const ClockifyStageResponse = Type.Object({
@@ -112,11 +113,50 @@ const mappingFields = {
 	association: Type.Optional(ClockifyImportAssociation),
 	billing: Type.Optional(ClockifyImportBilling),
 };
+const ClockifyCorrectionChoice = Type.Union([
+	Type.Object({ mode: Type.Literal('separate') }, strict),
+	Type.Object({
+		mode: Type.Union([Type.Literal('keep'), Type.Literal('update')]),
+		entryId: Uuid, revision: Revision, confirmOverlap: Type.Optional(Type.Boolean()),
+	}, strict),
+]);
+const nullableText = Type.Union([Text, Type.Null()]);
+const correctionWork = {
+	description: Text,
+	localDate: Text,
+	startAt: nullableText,
+	endAt: nullableText,
+	durationSeconds: Count,
+	amountOre: NullableHourlyRate,
+};
+export const ClockifyCorrectionCandidate = Type.Object({
+	...correctionWork,
+	entryId: Uuid,
+	revision: Revision,
+	state: Type.Union([Type.Literal('active'), Type.Literal('invoiced'), Type.Literal('deleted'), Type.Literal('split'), Type.Literal('incomplete')]),
+	source: ClockifySource,
+	billable: Type.Boolean(),
+	rateOrePerHour: NullableHourlyRate,
+	clientName: nullableText,
+	projectName: nullableText,
+	invoicedAt: nullableText,
+}, strict);
+export const ClockifyCorrectionProposal = Type.Object({ ...correctionWork, overlap: Type.Boolean() }, strict);
+export const ClockifyCorrectionTargetsQuery = Type.Object({
+	search: Type.Optional(Type.String({ maxLength: 160 })),
+	cursor: Type.Optional(Uuid),
+}, strict);
+export const ClockifyCorrectionTargetsResponse = Type.Object({
+	candidates: Type.Array(ClockifyCorrectionCandidate, { maxItems: 20 }),
+	nextCursor: NullableUuid,
+}, strict);
+
 const Occurrence = Type.Union([Type.Literal('earlier'), Type.Literal('later')]);
 export const ClockifyImportRowDecision = Type.Object({
 	line: Type.Integer({ minimum: 2, maximum: maxClockifyCsvBytes + 1 }),
 	...mappingFields,
 	exclude: Type.Optional(Type.Boolean()),
+	correction: Type.Optional(ClockifyCorrectionChoice),
 	acceptIncomplete: Type.Optional(Type.Boolean()),
 	startOccurrence: Type.Optional(Occurrence),
 	endOccurrence: Type.Optional(Occurrence),
@@ -139,11 +179,17 @@ export const ClockifyImportReviewResponse = Type.Object({
 	previewToken: NullableUuid,
 	expiresAt: Type.Union([Text, Type.Null()]),
 	canCommit: Type.Boolean(),
-	counts: Type.Object({ new: Count, alreadyImported: Count, excluded: Count, duplicateOmitted: Count, blocked: Count, incomplete: Count, invoiced: Count }, strict),
+	counts: Type.Object({ new: Count, alreadyImported: Count, excluded: Count, duplicateOmitted: Count, keptExisting: Count, updatedExisting: Count, blocked: Count, incomplete: Count, invoiced: Count }, strict),
 	rows: Type.Array(Type.Object({
 		line: Type.Integer({ minimum: 2 }),
-		status: Type.Union([Type.Literal('new'), Type.Literal('already-imported'), Type.Literal('excluded'), Type.Literal('duplicate-omitted'), Type.Literal('blocked')]),
+		status: Type.Union([Type.Literal('new'), Type.Literal('already-imported'), Type.Literal('excluded'), Type.Literal('duplicate-omitted'), Type.Literal('kept-existing'), Type.Literal('updated-existing'), Type.Literal('blocked')]),
 		issues: Type.Array(Text),
+		correction: Type.Union([Type.Null(), Type.Object({
+			candidateCount: Count,
+			candidates: Type.Array(ClockifyCorrectionCandidate, { maxItems: 5 }),
+			selected: Type.Union([Type.Null(), ClockifyCorrectionCandidate]),
+			proposed: Type.Union([Type.Null(), ClockifyCorrectionProposal]),
+		}, strict)]),
 		incomplete: Type.Boolean(),
 		invoiced: Type.Boolean(),
 		approved: Type.Union([Type.Null(), Type.Object({
@@ -179,11 +225,17 @@ export const ClockifyImportCommitResponse = Type.Object({
 	alreadyImportedCount: Count,
 	excludedCount: Count,
 	duplicateOmittedCount: Type.Optional(Count),
+	keptExistingCount: Type.Optional(Count),
+	updatedExistingCount: Type.Optional(Count),
 	incompleteCount: Count,
 	invoicedCount: Count,
 	serverNow: Text,
 }, strict);
 
+export type ClockifyCorrectionCandidate = Static<typeof ClockifyCorrectionCandidate>;
+export type ClockifyCorrectionProposal = Static<typeof ClockifyCorrectionProposal>;
+export type ClockifyCorrectionTargetsQuery = Static<typeof ClockifyCorrectionTargetsQuery>;
+export type ClockifyCorrectionTargetsResponse = Static<typeof ClockifyCorrectionTargetsResponse>;
 export type ClockifyStageResponse = Static<typeof ClockifyStageResponse>;
 export type ClockifyImportAssociation = Static<typeof ClockifyImportAssociation>;
 export type ClockifyImportBilling = Static<typeof ClockifyImportBilling>;
@@ -206,5 +258,11 @@ export function parseClockifyImportReviewResponse(value: unknown): ClockifyImpor
 
 export function parseClockifyImportCommitResponse(value: unknown): ClockifyImportCommitResponse {
 	if (!Value.Check(ClockifyImportCommitResponse, value)) throw new Error('Invalid Clockify commit response');
+	return value;
+}
+
+
+export function parseClockifyCorrectionTargetsResponse(value: unknown): ClockifyCorrectionTargetsResponse {
+	if (!Value.Check(ClockifyCorrectionTargetsResponse, value)) throw new Error('Invalid Clockify correction targets');
 	return value;
 }

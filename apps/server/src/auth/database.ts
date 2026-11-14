@@ -37,6 +37,7 @@ export async function openDatabase(url: string): Promise<PrismaClient> {
 		await database.clockifyImportPreview.findFirst({ select: { id: true } });
 		await database.clockifyImportBatch.findFirst({ select: { id: true } });
 		await database.clockifyImportIdentity.findFirst({ select: { fingerprint: true } });
+		await database.clockifyImportAlias.findFirst({ select: { fingerprint: true } });
 		return database;
 	} catch {
 		await database.$disconnect();

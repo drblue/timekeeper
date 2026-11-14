@@ -1488,3 +1488,53 @@ button:disabled {
 .clockify-duplicate-groups .clockify-duplicate-group > .field {
 	max-inline-size: 14rem;
 }
+
+.clockify-correction-fields {
+	margin-block: 0.65rem;
+}
+
+.clockify-target-search {
+	display: grid;
+	gap: 0.65rem;
+	margin-block-start: 0.65rem;
+}
+
+.clockify-correction-comparison {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+	gap: 0.8rem 1rem;
+}
+
+.clockify-correction-comparison section {
+	border-block-start: 1px solid var(--border);
+	padding-block-start: 0.6rem;
+}
+
+.clockify-correction-comparison :is(dl, dt, dd) {
+	margin: 0;
+}
+
+.clockify-correction-comparison dl {
+	display: grid;
+	gap: 0.45rem;
+	margin-block-start: 0.5rem;
+}
+
+.clockify-correction-comparison dt {
+	font-size: 0.875rem;
+	font-weight: 650;
+}
+
+.clockify-correction-comparison dd {
+	color: var(--muted);
+	white-space: pre-wrap;
+}
+
+.clockify-correction-metadata {
+	margin-block-start: 0.55rem;
+}
+
+.clockify-correction-list {
+	display: grid;
+	gap: 0.55rem;
+}

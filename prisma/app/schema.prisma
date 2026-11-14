@@ -238,6 +238,7 @@ model ClockifyImportBatch {
 	committedAt DateTime
 	snapshot    String
 	identities  ClockifyImportIdentity[]
+	aliases     ClockifyImportAlias[]
 
 	@@unique([accountId, id])
 	@@index([accountId, committedAt])
@@ -254,9 +255,30 @@ model ClockifyImportIdentity {
 	batch          ClockifyImportBatch @relation(fields: [accountId, batchId], references: [accountId, id], onDelete: Restrict)
 	entryRevision  Int
 	sourceSnapshot String
+	aliases        ClockifyImportAlias[]
 
 	@@id([accountId, fingerprint, occurrence])
 	@@index([accountId, candidateKey])
 	@@index([accountId, batchId])
 	@@index([accountId, entryId])
+}
+
+model ClockifyImportAlias {
+	accountId         String
+	fingerprint       String
+	occurrence        Int
+	candidateKey      String
+	targetFingerprint String
+	targetOccurrence  Int
+	target            ClockifyImportIdentity @relation(fields: [accountId, targetFingerprint, targetOccurrence], references: [accountId, fingerprint, occurrence], onDelete: Restrict)
+	batchId           String
+	batch             ClockifyImportBatch @relation(fields: [accountId, batchId], references: [accountId, id], onDelete: Restrict)
+	resolution        String
+	sourceSnapshot    String
+
+	@@id([accountId, fingerprint, occurrence])
+	@@unique([accountId, fingerprint, targetFingerprint, targetOccurrence])
+	@@index([accountId, candidateKey])
+	@@index([accountId, batchId])
+	@@index([accountId, targetFingerprint, targetOccurrence])
 }

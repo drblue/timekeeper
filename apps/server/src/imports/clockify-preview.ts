@@ -18,7 +18,7 @@ function validateTimeZone(timeZone: string) {
 	return timeZone;
 }
 
-function sourceDuration(value: string) {
+export function sourceDuration(value: string) {
 	const match = /^(\d{1,6}):([0-5]\d):([0-5]\d)$/.exec(value);
 	if (!match) return null;
 	const seconds = Number(match[1]) * 3_600 + Number(match[2]) * 60 + Number(match[3]);

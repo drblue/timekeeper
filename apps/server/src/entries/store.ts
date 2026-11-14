@@ -32,7 +32,7 @@ function completedAllocations(time: EntryTime, billableAmountOre: bigint) {
 		.map((allocation) => ({ ...allocation, calculationVersion: allocationCalculationVersion }));
 }
 
-interface EntryTime {
+export interface EntryTime {
 	localDate: string;
 	durationSeconds: number;
 	startAt: Date | null;
@@ -74,8 +74,9 @@ function requireOverlapConfirmation(overlap: boolean, confirmed: boolean | undef
 	}
 }
 
-async function prepareEdit(
+export async function prepareEdit(
 	transaction: Prisma.TransactionClient, accountId: string, current: EntryWithRelations, input: EntryEditBody, proposedTime: EntryTime | undefined,
+	proposedKind = input.time?.kind,
 ) {
 	const { projectId, directClientId, billable, rate } = input;
 	const description = workDescription(input.description);
@@ -97,7 +98,7 @@ async function prepareEdit(
 		throw new ApiRequestError(422, 'INVALID_DURATION', 'Enter a positive duration for this time entry.', 'time');
 	}
 	const work = { description, projectId, directClientId, billable, assignedRateOrePerHour };
-	const kind = input.time?.kind ?? (current.startAt ? 'timed' : 'duration-only');
+	const kind = proposedKind ?? (current.startAt ? 'timed' : 'duration-only');
 	const timeChanged = Boolean(proposedTime && (
 		kind !== current.kind || proposedTime.localDate !== current.localDate || proposedTime.durationSeconds !== current.durationSeconds
 		|| proposedTime.startAt?.getTime() !== current.startAt?.getTime() || proposedTime.endAt?.getTime() !== current.endAt?.getTime()
@@ -113,9 +114,9 @@ async function prepareEdit(
 	return { work, kind, time, billableAmountOre, overlap, changed: rebuild || associationChanged || description !== current.description };
 }
 
-async function replaceEntry(
+export async function replaceEntry(
 	transaction: Prisma.TransactionClient, current: EntryWithRelations, kind: EntryResponse['kind'], work: WorkSettings,
-	billableAmountOre: bigint, time: EntryTime | null,
+	billableAmountOre: bigint, time: EntryTime | null, at = new Date(), operationKey?: string,
 ): Promise<EntryResponse> {
 	const { id, accountId, revision } = current;
 	if (time) await transaction.entryDayAllocation.deleteMany({ where: { entryId: id } });
@@ -131,7 +132,7 @@ async function replaceEntry(
 		include: entryRelations,
 	});
 	const response = entryResponse(updated);
-	await recordHistory(transaction, current.completion === 'incomplete' ? 'completed' : 'edited', new Date(), response, entryResponse(current));
+	await recordHistory(transaction, current.completion === 'incomplete' ? 'completed' : 'edited', at, response, entryResponse(current), operationKey);
 	return response;
 }
 
