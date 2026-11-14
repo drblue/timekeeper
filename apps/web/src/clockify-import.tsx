@@ -12,6 +12,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ApiRequestError, readApi, requestError, writeApi } from './api';
 import { authError, useSession } from './auth';
 import { catalogKey, catalogPaths } from './catalog';
+import { ClockifyDuplicateGroups } from './clockify-duplicate-groups';
 import { clockifyCatalogLabels } from './clockify-catalog';
 import type { ClockifyCatalog } from './clockify-catalog';
 import { readPendingClockifyImport, writePendingClockifyImport } from './clockify-import-pending';
@@ -64,6 +65,8 @@ function importError(cause: unknown) {
 			case 'CLOCKIFY_STAGE_LIMIT':
 			case 'CLOCKIFY_PREVIEW_LIMIT':
 				return 'There are too many active import reviews. Wait for an earlier review to expire and try again.';
+			case 'CLOCKIFY_INVALID_MULTIPLICITY':
+				return 'The identical rows changed. Check how many copies to keep and update the review.';
 			case 'CLOCKIFY_IMPORT_TOO_LARGE':
 				return 'This import is too large. Export a shorter date range.';
 			case 'IDEMPOTENCY_CONFLICT':
@@ -81,6 +84,7 @@ function ReviewCounts({ counts }: { counts: ClockifyImportReviewResponse['counts
 			<div><dt>New entries</dt><dd>{counts.new}</dd></div>
 			<div><dt>Already imported</dt><dd>{counts.alreadyImported}</dd></div>
 			<div><dt>Excluded</dt><dd>{counts.excluded}</dd></div>
+			{counts.duplicateOmitted ? <div><dt>Identical copies omitted</dt><dd>{counts.duplicateOmitted}</dd></div> : null}
 			<div><dt>Blocked</dt><dd>{counts.blocked}</dd></div>
 			<div><dt>Incomplete</dt><dd>{counts.incomplete}</dd></div>
 			<div><dt>Invoiced</dt><dd>{counts.invoiced}</dd></div>
@@ -90,18 +94,29 @@ function ReviewCounts({ counts }: { counts: ClockifyImportReviewResponse['counts
 
 const commitRejections = new Set(['CLOCKIFY_PREVIEW_CHANGED', 'CLOCKIFY_PREVIEW_EXPIRED', 'CLOCKIFY_PREVIEW_NOT_FOUND', 'IDEMPOTENCY_CONFLICT']);
 
-const disposition = { new: 'New entry', 'already-imported': 'Already imported', excluded: 'Excluded', blocked: 'Blocked' } as const;
+const disposition = { new: 'New entry', 'already-imported': 'Already imported', excluded: 'Excluded', 'duplicate-omitted': 'Identical copy omitted', blocked: 'Blocked' } as const;
 
-function ImportReview({ review, rows, catalog, pending, onConfirm, onEdit }: {
+function ImportReview({ review, rows, catalog, pending, error, duplicateCounts, onDuplicateCount, onUpdateReview, onConfirm, onEdit }: {
 	review: ClockifyImportReviewResponse;
 	rows: ClockifyPreviewRow[];
 	catalog: ClockifyCatalog;
 	pending: boolean;
+	error: string;
+	duplicateCounts: Record<string, number>;
+	onDuplicateCount: (fingerprint: string, count: number) => void;
+	onUpdateReview: () => void;
 	onConfirm: () => void;
 	onEdit: () => void;
 }) {
 	const heading = useRef<HTMLHeadingElement>(null);
-	const sources = new Map(rows.map((row) => [row.line, row.source]));
+	const reviewError = useRef<HTMLParagraphElement>(null);
+	const sources = new Map(rows.map((row) => [row.line, row]));
+	const dirty = review.duplicateGroups.some((group) =>
+		(duplicateCounts[group.fingerprint] ?? group.selectedCount) !== group.selectedCount);
+	const invalid = review.duplicateGroups.some((group) => {
+		const count = duplicateCounts[group.fingerprint] ?? group.selectedCount;
+		return !Number.isInteger(count) || count < 1 || count > group.lines.length;
+	});
 	const sorted = [...review.rows].sort((a, b) => Number(b.status === 'blocked') - Number(a.status === 'blocked') || a.line - b.line);
 	const [limit, setLimit] = useState(20);
 	const approved = review.rows.flatMap((row) => row.approved ? [row.approved] : []);
@@ -118,11 +133,20 @@ function ImportReview({ review, rows, catalog, pending, onConfirm, onEdit }: {
 		name === null ? 'No client' : id ? labelClient(name, id) + ' (existing)' : name + ' (new)';
 	const projectLabel = (name: string | null, id: string | null) =>
 		name === null ? 'No project' : id ? labelProject(name, id) + ' (existing)' : name + ' (new)';
-	useLayoutEffect(() => heading.current?.focus(), []);
+	useLayoutEffect(() => heading.current?.focus(), [review]);
+	useLayoutEffect(() => { if (error && !pending) reviewError.current?.focus(); }, [error, pending]);
 	return (
 		<section className="panel report-section clockify-results" aria-labelledby="clockify-review-heading">
 			<h2 id="clockify-review-heading" tabIndex={-1} ref={heading}>Review import</h2>
 			<ReviewCounts counts={review.counts} />
+			{error ? <p className="feedback error" role="alert" ref={reviewError} tabIndex={-1}>{error}</p> : null}
+			{review.duplicateGroups.length ? (
+				<ClockifyDuplicateGroups groups={review.duplicateGroups} rows={sources} counts={duplicateCounts} disabled={pending}
+					onChange={(group, count) => onDuplicateCount(group.fingerprint, count)} />
+			) : null}
+			{dirty ? <p className="feedback warning" role="status">{invalid
+				? 'Enter a whole number from 1 to the number of identical rows.'
+				: 'Update the review to see which entries will be imported.'}</p> : null}
 			{review.createClients.length || review.createProjects.length ? (
 				<div className="clockify-review-catalog">
 					<h3>Catalog records to create</h3>
@@ -142,7 +166,7 @@ function ImportReview({ review, rows, catalog, pending, onConfirm, onEdit }: {
 				<ul className="clockify-rows">
 					{sorted.slice(0, limit).map((row) => (
 						<li key={row.line} className="clockify-row">
-							<strong>Line {row.line} · {sources.get(row.line)?.description.trim() || 'Untitled row'}</strong>
+							<strong>Line {row.line} · {sources.get(row.line)?.source?.description.trim() || 'Untitled row'}</strong>
 							<p className="field-hint">{disposition[row.status]}{row.incomplete ? ' · Incomplete' : ''}{row.invoiced ? ' · Invoiced' : ''}</p>
 							{row.approved ? (
 								<dl className="entry-invoice-values clockify-row-values">
@@ -163,7 +187,10 @@ function ImportReview({ review, rows, catalog, pending, onConfirm, onEdit }: {
 				{limit < sorted.length ? <button type="button" onClick={() => setLimit(limit + 20)}>Show more rows</button> : null}
 			</details>
 			<div className="form-actions">
-				{review.canCommit && review.previewToken ? (
+				{dirty ? <button type="button" className="primary" disabled={pending || invalid} onClick={onUpdateReview}>
+					{pending ? 'Updating review…' : 'Update review'}
+				</button> : null}
+				{!dirty && review.canCommit && review.previewToken ? (
 					<button type="button" className="primary" disabled={pending} onClick={onConfirm}>
 						{review.counts.new ? 'Confirm import' : 'Confirm no changes'}
 					</button>
@@ -181,7 +208,7 @@ function ImportResult({ result, onBack }: { result: ClockifyImportCommitResponse
 		<section className="panel report-section" aria-labelledby="clockify-complete-heading">
 			<h2 id="clockify-complete-heading" ref={heading} tabIndex={-1}>{result.createdCount ? 'Import complete' : 'No new entries imported'}</h2>
 			<ReviewCounts counts={{ new: result.createdCount, alreadyImported: result.alreadyImportedCount, excluded: result.excludedCount,
-				blocked: 0, incomplete: result.incompleteCount, invoiced: result.invoicedCount }} />
+				blocked: 0, incomplete: result.incompleteCount, invoiced: result.invoicedCount, duplicateOmitted: result.duplicateOmittedCount ?? 0 }} />
 			<div className="form-actions"><button type="button" onClick={onBack}>Inspect another file</button></div>
 		</section>
 	);
@@ -205,6 +232,7 @@ export function ClockifyImport({ file, inspection, onBack, onFinished, pending, 
 	const [billing, setBilling] = useState(emptyBilling);
 	const [rows, setRows] = useState<Record<number, RowDraft>>({});
 	const [review, setReview] = useState<ClockifyImportReviewResponse>();
+	const [duplicateCounts, setDuplicateCounts] = useState<Record<string, number>>({});
 	const [previousIssues, setPreviousIssues] = useState(new Map<number, string[]>());
 	const [result, setResult] = useState<ClockifyImportCommitResponse>();
 	const editingReturn = useRef(false);
@@ -291,9 +319,11 @@ export function ClockifyImport({ file, inspection, onBack, onFinished, pending, 
 	function buildReview(): ClockifyImportReviewBody {
 		if (!stage) throw new Error('Inspect the file again.');
 		const defaultBilling = billingChoice(billing);
+		const multiplicities = Object.entries(duplicateCounts).map(([fingerprint, count]) => ({ fingerprint, count }));
 		return {
 			stageId: stage.stageId,
 			defaults: { billing: defaultBilling },
+			multiplicities: multiplicities.length ? multiplicities : undefined,
 			rows: stage.inspection.rows.flatMap<ClockifyImportRowDecision>((row) => {
 				const draft = rows[row.line] ?? {};
 				if (draft.exclude) return [{ line: row.line, exclude: true }];
@@ -325,11 +355,16 @@ export function ClockifyImport({ file, inspection, onBack, onFinished, pending, 
 			const next = parseClockifyImportReviewResponse(await response.json());
 			if (controller.signal.aborted) return;
 			setPreviousIssues(new Map(next.rows.filter((row) => row.issues.length).map((row) => [row.line, row.issues])));
+			setDuplicateCounts((previous) => Object.fromEntries(next.duplicateGroups.flatMap((group) => {
+				const count = previous[group.fingerprint];
+				return count === group.selectedCount ? [[group.fingerprint, count]] : [];
+			})));
 			setReview(next);
 		} catch (cause) {
 			if (!controller.signal.aborted) {
 				if (cause instanceof ApiRequestError && ['CLOCKIFY_STAGE_EXPIRED', 'CLOCKIFY_STAGE_NOT_FOUND'].includes(cause.code ?? '')) {
 					setStageExpired(true);
+					setReview(undefined);
 				}
 				setError(await message(cause));
 			}
@@ -372,17 +407,34 @@ export function ClockifyImport({ file, inspection, onBack, onFinished, pending, 
 	}
 
 	function updateRow(line: number, next: RowDraft) {
+		const previous = rows[line];
+		if (!!previous?.exclude !== !!next.exclude || previous?.startOccurrence !== next.startOccurrence ||
+			previous?.endOccurrence !== next.endOccurrence || previous?.durationChoice !== next.durationChoice) {
+			setDuplicateCounts({});
+		}
 		setRows({ ...rows, [line]: next });
 	}
 
 	function edit() {
+		setDuplicateCounts((current) => {
+			const next = { ...current };
+			for (const group of review?.duplicateGroups ?? []) {
+				if (next[group.fingerprint] !== group.selectedCount) delete next[group.fingerprint];
+			}
+			return next;
+		});
 		setReview(undefined);
 		setError('');
 		editingReturn.current = true;
 	}
 
 	if (result) return <ImportResult result={result} onBack={onFinished} />;
-	if (review && !pending) return <ImportReview review={review} rows={stageRows} catalog={catalog} pending={!!busy} onEdit={edit} onConfirm={() => {
+	if (review && !pending) return <ImportReview review={review} rows={stageRows} catalog={catalog} pending={!!busy}
+		error={error} duplicateCounts={duplicateCounts} onEdit={edit} onUpdateReview={() => void reviewImport()}
+		onDuplicateCount={(fingerprint, count) => {
+			setError('');
+			setDuplicateCounts({ ...duplicateCounts, [fingerprint]: count });
+		}} onConfirm={() => {
 		if (review.previewToken) void commit({ previewToken: review.previewToken, key: operationKey() });
 	}} />;
 	return (

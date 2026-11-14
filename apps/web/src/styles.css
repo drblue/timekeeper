@@ -1478,3 +1478,13 @@ button:disabled {
 .clockify-page[hidden] {
 	display: none;
 }
+
+.clockify-duplicate-groups,
+.clockify-duplicate-group {
+	display: grid;
+	gap: 0.55rem;
+}
+
+.clockify-duplicate-groups .clockify-duplicate-group > .field {
+	max-inline-size: 14rem;
+}

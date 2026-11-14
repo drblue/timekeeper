@@ -11,13 +11,13 @@ export const maxClockifyRows = 4_000;
 const strict = { additionalProperties: false };
 const Text = Type.String();
 const Count = Type.Integer({ minimum: 0 });
-const UserId = Type.String({ pattern: '^[0-9a-f]{64}$' });
+const Sha256 = Type.String({ pattern: '^[0-9a-f]{64}$' });
 const TimeZone = Type.String({ minLength: 1, maxLength: 128 });
 const NullableSeconds = Type.Union([Type.Integer(), Type.Null()]);
 
 export const ClockifyPreviewQuery = Type.Object({
 	sourceTimeZone: Type.Optional(TimeZone),
-	selectedUserId: Type.Optional(UserId),
+	selectedUserId: Type.Optional(Sha256),
 }, strict);
 
 export const ClockifySource = Type.Object({
@@ -68,8 +68,8 @@ export const ClockifyPreviewRow = Type.Object({
 
 export const ClockifyPreviewResponse = Type.Object({
 	sourceTimeZone: TimeZone,
-	users: Type.Array(Type.Object({ id: UserId, user: Text, email: Text, rowCount: Count }, strict), { maxItems: maxClockifyRows }),
-	selectedUserId: Type.Union([UserId, Type.Null()]),
+	users: Type.Array(Type.Object({ id: Sha256, user: Text, email: Text, rowCount: Count }, strict), { maxItems: maxClockifyRows }),
+	selectedUserId: Type.Union([Sha256, Type.Null()]),
 	requiresUserSelection: Type.Boolean(),
 	counts: Type.Object({ total: Count, selected: Count, valid: Count, review: Count, invalid: Count, unassigned: Count }, strict),
 	rows: Type.Array(ClockifyPreviewRow, { maxItems: maxClockifyRows }),
@@ -123,20 +123,26 @@ export const ClockifyImportRowDecision = Type.Object({
 	durationChoice: Type.Optional(Type.Union([Type.Literal('use-timestamps'), Type.Literal('duration-only')])),
 }, strict);
 
+export const ClockifyMultiplicity = Type.Object({
+	fingerprint: Sha256,
+	count: Type.Integer({ minimum: 1, maximum: maxClockifyRows }),
+}, strict);
+
 export const ClockifyImportReviewBody = Type.Object({
 	stageId: Uuid,
 	defaults: Type.Optional(Type.Object(mappingFields, strict)),
 	rows: Type.Array(ClockifyImportRowDecision, { maxItems: maxClockifyRows }),
+	multiplicities: Type.Optional(Type.Array(ClockifyMultiplicity, { maxItems: Math.floor(maxClockifyRows / 2) })),
 }, strict);
 
 export const ClockifyImportReviewResponse = Type.Object({
 	previewToken: NullableUuid,
 	expiresAt: Type.Union([Text, Type.Null()]),
 	canCommit: Type.Boolean(),
-	counts: Type.Object({ new: Count, alreadyImported: Count, excluded: Count, blocked: Count, incomplete: Count, invoiced: Count }, strict),
+	counts: Type.Object({ new: Count, alreadyImported: Count, excluded: Count, duplicateOmitted: Count, blocked: Count, incomplete: Count, invoiced: Count }, strict),
 	rows: Type.Array(Type.Object({
 		line: Type.Integer({ minimum: 2 }),
-		status: Type.Union([Type.Literal('new'), Type.Literal('already-imported'), Type.Literal('excluded'), Type.Literal('blocked')]),
+		status: Type.Union([Type.Literal('new'), Type.Literal('already-imported'), Type.Literal('excluded'), Type.Literal('duplicate-omitted'), Type.Literal('blocked')]),
 		issues: Type.Array(Text),
 		incomplete: Type.Boolean(),
 		invoiced: Type.Boolean(),
@@ -155,6 +161,13 @@ export const ClockifyImportReviewResponse = Type.Object({
 			amountOre: NullableHourlyRate,
 		}, strict)]),
 	}, strict), { maxItems: maxClockifyRows }),
+	duplicateGroups: Type.Array(Type.Object({
+		fingerprint: Sha256,
+		lines: Type.Array(Type.Integer({ minimum: 2 }), { minItems: 2, maxItems: maxClockifyRows }),
+		existingCount: Count,
+		selectedCount: Count,
+		newCount: Count,
+	}, strict), { maxItems: Math.floor(maxClockifyRows / 2) }),
 	createClients: Type.Array(Type.Object({ name: Text }, strict)),
 	createProjects: Type.Array(Type.Object({ name: Text, clientId: NullableUuid, clientName: Type.Union([Text, Type.Null()]) }, strict)),
 }, strict);
@@ -165,6 +178,7 @@ export const ClockifyImportCommitResponse = Type.Object({
 	createdCount: Count,
 	alreadyImportedCount: Count,
 	excludedCount: Count,
+	duplicateOmittedCount: Type.Optional(Count),
 	incompleteCount: Count,
 	invoicedCount: Count,
 	serverNow: Text,
@@ -174,6 +188,7 @@ export type ClockifyStageResponse = Static<typeof ClockifyStageResponse>;
 export type ClockifyImportAssociation = Static<typeof ClockifyImportAssociation>;
 export type ClockifyImportBilling = Static<typeof ClockifyImportBilling>;
 export type ClockifyImportRowDecision = Static<typeof ClockifyImportRowDecision>;
+export type ClockifyMultiplicity = Static<typeof ClockifyMultiplicity>;
 export type ClockifyImportReviewBody = Static<typeof ClockifyImportReviewBody>;
 export type ClockifyImportReviewResponse = Static<typeof ClockifyImportReviewResponse>;
 export type ClockifyImportCommitBody = Static<typeof ClockifyImportCommitBody>;

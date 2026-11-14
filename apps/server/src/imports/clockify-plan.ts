@@ -35,6 +35,7 @@ interface SourceRecord {
 }
 
 export interface ClockifyPlannedEntry extends SourceRecord {
+	occurrence: number;
 	association: ResolvedClockifyAssociation;
 	description: string;
 	billable: boolean;
@@ -71,9 +72,49 @@ function reviewRow(row: ClockifyPreviewRow, status: ReviewRow['status'], issues:
 	return { line: row.line, status, issues, incomplete: false, invoiced: row.invoicedTag === true, approved: null };
 }
 
+function planOccurrences(
+	groups: Map<string, { candidateKey: string; lines: number[] }>,
+	previous: Awaited<ReturnType<typeof previousClockifyIdentities>>,
+	multiplicities: NonNullable<ClockifyImportReviewBody['multiplicities']>,
+) {
+	const requestedCounts = new Map<string, number>();
+	for (const { fingerprint, count } of multiplicities) {
+		const group = groups.get(fingerprint);
+		if (!group || group.lines.length < 2 || requestedCounts.has(fingerprint) || count > group.lines.length) {
+			throw new ApiRequestError(422, 'CLOCKIFY_INVALID_MULTIPLICITY', 'Choose a count within the eligible rows of each current duplicate group.');
+		}
+		requestedCounts.set(fingerprint, count);
+	}
+
+	const duplicateGroups: Review['duplicateGroups'] = [];
+	const existingSlots: { fingerprint: string; slots: number[] }[] = [];
+	const rowSlots = new Map<number, { occurrence: number; existing: boolean }>();
+	for (const [fingerprint, { candidateKey, lines }] of groups) {
+		const slots = previous.get(candidateKey)?.get(fingerprint) ?? [];
+		const selectedCount = requestedCounts.get(fingerprint) ?? Math.min(lines.length, Math.max(1, slots.length));
+		if (lines.length > 1) {
+			duplicateGroups.push({ fingerprint, lines, existingCount: slots.length, selectedCount, newCount: Math.max(0, selectedCount - slots.length) });
+		}
+		if (slots.length) existingSlots.push({ fingerprint, slots });
+		const occupied = new Set(slots);
+		let vacant = 1;
+		for (const [index, line] of lines.slice(0, selectedCount).entries()) {
+			const existing = slots[index];
+			if (existing !== undefined) {
+				rowSlots.set(line, { occurrence: existing, existing: true });
+			} else {
+				while (occupied.has(vacant)) vacant += 1;
+				rowSlots.set(line, { occurrence: vacant, existing: false });
+				vacant += 1;
+			}
+		}
+	}
+	return { duplicateGroups, existingSlots, rowSlots };
+}
+
 export async function planClockifyImport(
 	transaction: Prisma.TransactionClient, accountId: string, inspection: ClockifyPreviewResponse, input: ClockifyImportReviewBody,
-): Promise<{ review: Review; entries: ClockifyPlannedEntry[] }> {
+) {
 	const lineSet = new Set(inspection.rows.map(({ line }) => line));
 	const decisions = new Map<number, ClockifyImportRowDecision>();
 	for (const decision of input.rows) {
@@ -90,10 +131,12 @@ export async function planClockifyImport(
 	const previous = await previousClockifyIdentities(transaction, accountId, analyzed.flatMap(({ record }) =>
 		Array.isArray(record) ? [] : [record.candidateKey]));
 	const candidates = new Map<string, Set<string>>();
-	const occurrences = new Map<string, number>();
+	const groups = new Map<string, { candidateKey: string; lines: number[] }>();
 	for (const { record, decision } of analyzed) {
 		if (Array.isArray(record) || decision?.exclude) continue;
-		occurrences.set(record.fingerprint, (occurrences.get(record.fingerprint) ?? 0) + 1);
+		const group = groups.get(record.fingerprint);
+		if (group) group.lines.push(record.line);
+		else groups.set(record.fingerprint, { candidateKey: record.candidateKey, lines: [record.line] });
 		let fingerprints = candidates.get(record.candidateKey);
 		if (!fingerprints) {
 			fingerprints = new Set();
@@ -102,16 +145,19 @@ export async function planClockifyImport(
 		fingerprints.add(record.fingerprint);
 	}
 
+	const { duplicateGroups, existingSlots, rowSlots } = planOccurrences(groups, previous, input.multiplicities ?? []);
 	const resolveAssociation = await readClockifyAssociations(transaction, accountId);
 	const entries: ClockifyPlannedEntry[] = [];
 	let allocations = 0;
 	const rows = analyzed.map(({ row, decision, record }): ReviewRow => {
 		if (decision?.exclude) return reviewRow(row, 'excluded');
 		if (Array.isArray(record)) return reviewRow(row, 'blocked', record);
-		if ((occurrences.get(record.fingerprint) ?? 0) > 1) return reviewRow(row, 'blocked', ['duplicate-source']);
+		const slot = rowSlots.get(record.line);
+		if (!slot) return reviewRow(row, 'duplicate-omitted');
+		if (slot.existing) return reviewRow(row, 'already-imported');
 		const prior = previous.get(record.candidateKey);
-		if (prior?.has(record.fingerprint)) return reviewRow(row, 'already-imported');
-		if (prior?.size || (candidates.get(record.candidateKey)?.size ?? 0) > 1) {
+		const exactPriorCount = prior?.has(record.fingerprint) ? 1 : 0;
+		if ((prior?.size ?? 0) > exactPriorCount || (candidates.get(record.candidateKey)?.size ?? 0) > 1) {
 			return reviewRow(row, 'blocked', ['possible-correction']);
 		}
 
@@ -154,7 +200,7 @@ export async function planClockifyImport(
 			throw new ApiRequestError(422, 'CLOCKIFY_IMPORT_TOO_LARGE', 'Review a smaller selection. An import can create up to 8000 day allocations.');
 		}
 		const rateOrePerHour = rate?.toString() ?? null;
-		entries.push({ ...record, association, description, billable, rateOrePerHour, incomplete });
+		entries.push({ ...record, occurrence: slot.occurrence, association, description, billable, rateOrePerHour, incomplete });
 		return {
 			...reviewRow(row, 'new'),
 			incomplete,
@@ -172,15 +218,16 @@ export async function planClockifyImport(
 	if (creations.conflictingNames) {
 		throw new ApiRequestError(422, 'CLOCKIFY_INVALID_DECISIONS', 'Use one consistent spelling for each new client and project name.');
 	}
-	const counts = { new: 0, alreadyImported: 0, excluded: 0, blocked: 0, incomplete: 0, invoiced: 0 };
+	const counts = { new: 0, alreadyImported: 0, excluded: 0, duplicateOmitted: 0, blocked: 0, incomplete: 0, invoiced: 0 };
 	for (const row of rows) {
 		if (row.status === 'already-imported') counts.alreadyImported += 1;
+		else if (row.status === 'duplicate-omitted') counts.duplicateOmitted += 1;
 		else counts[row.status] += 1;
 		if (row.status === 'new' && row.incomplete) counts.incomplete += 1;
 		if (row.status === 'new' && row.invoiced) counts.invoiced += 1;
 	}
-	return { entries, review: {
-		canCommit: counts.blocked === 0 && (counts.new > 0 || counts.alreadyImported > 0), counts, rows,
+	return { entries, existingSlots, review: {
+		canCommit: counts.blocked === 0 && (counts.new > 0 || counts.alreadyImported > 0), counts, rows, duplicateGroups,
 		createClients: creations.clients, createProjects: creations.projects,
 	} };
 }

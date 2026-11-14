@@ -53,7 +53,6 @@ const issueLabels: Record<string, string> = {
 	'ambiguous-end': 'Choose which occurrence of the end time to use.',
 	'duration-mismatch': 'Choose how to resolve the time and duration mismatch.',
 	'invalid-interval': 'The selected times do not make a positive interval.',
-	'duplicate-source': 'Identical rows occur in this file. Exclude extra copies to continue.',
 	'possible-correction': 'This row may be a correction to work already imported. Exclude it for now.',
 	'missing-association': 'Choose a client and project mapping, or choose no client or project.',
 	'invalid-association': 'Review this client and project mapping.',

@@ -68,7 +68,7 @@ export function createClockifyImportStore(database: PrismaClient, now: () => Dat
 				const plan = await planClockifyImport(transaction, accountId, readInspection(stage.snapshot), input);
 				if (!plan.review.canCommit) return { ...plan.review, previewToken: null, expiresAt: null };
 				const decisions = JSON.stringify(input);
-				const planHash = clockifyHash([1, stage.id, plan]);
+				const planHash = clockifyHash([2, stage.id, plan]);
 				if (Buffer.byteLength(decisions) > maxClockifyReviewBytes) {
 					throw new ApiRequestError(422, 'CLOCKIFY_IMPORT_TOO_LARGE', 'Choose a smaller selection to review.');
 				}
@@ -101,7 +101,7 @@ export function createClockifyImportStore(database: PrismaClient, now: () => Dat
 				const inspection = readInspection(preview.stage.snapshot);
 				const decisions = JSON.parse(preview.decisions) as ClockifyImportReviewBody;
 				const plan = await planClockifyImport(transaction, accountId, inspection, decisions);
-				if (!plan.review.canCommit || clockifyHash([1, preview.stageId, plan]) !== preview.planHash) previewChanged();
+				if (!plan.review.canCommit || clockifyHash([2, preview.stageId, plan]) !== preview.planHash) previewChanged();
 				const { counts } = plan.review;
 				const batchId = plan.entries.length ? randomUUID() : null;
 				if (batchId) {
@@ -124,14 +124,14 @@ export function createClockifyImportStore(database: PrismaClient, now: () => Dat
 						}, instant, { allowIncomplete: planned.incomplete, operationKey: key, invoicedAt: planned.invoiced ? instant : undefined });
 						await transaction.clockifyImportIdentity.create({ data: {
 							accountId, batchId, entryId: entry.id, entryRevision: entry.revision,
-							fingerprint: planned.fingerprint, candidateKey: planned.candidateKey,
+							fingerprint: planned.fingerprint, occurrence: planned.occurrence, candidateKey: planned.candidateKey,
 							sourceSnapshot: JSON.stringify({ version: 1, source: planned.source, sourceTimeZone: inspection.sourceTimeZone, sourceStartAt, sourceEndAt }),
 						} });
 					}
 				}
 				await transaction.clockifyImportPreview.update({ where: { id: preview.id }, data: { consumedAt: instant } });
 				return { batchId, createdCount: counts.new, alreadyImportedCount: counts.alreadyImported, excludedCount: counts.excluded,
-					incompleteCount: counts.incomplete, invoicedCount: counts.invoiced, serverNow: instant.toISOString() };
+					duplicateOmittedCount: counts.duplicateOmitted, incompleteCount: counts.incomplete, invoicedCount: counts.invoiced, serverNow: instant.toISOString() };
 			}, commitTimeoutMs);
 		},
 	};

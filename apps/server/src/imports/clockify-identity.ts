@@ -22,19 +22,25 @@ export async function previousClockifyIdentities(
 	transaction: Prisma.TransactionClient, accountId: string, candidateKeys: string[],
 ) {
 	const keys = [...new Set(candidateKeys)];
-	const byCandidate = new Map<string, Set<string>>();
+	const byCandidate = new Map<string, Map<string, number[]>>();
 	for (let start = 0; start < keys.length; start += 256) {
 		const matches = await transaction.clockifyImportIdentity.findMany({
 			where: { accountId, candidateKey: { in: keys.slice(start, start + 256) } },
-			select: { candidateKey: true, fingerprint: true },
+			select: { candidateKey: true, fingerprint: true, occurrence: true },
+			orderBy: { occurrence: 'asc' },
 		});
-		for (const { candidateKey, fingerprint } of matches) {
+		for (const { candidateKey, fingerprint, occurrence } of matches) {
 			let fingerprints = byCandidate.get(candidateKey);
 			if (!fingerprints) {
-				fingerprints = new Set();
+				fingerprints = new Map();
 				byCandidate.set(candidateKey, fingerprints);
 			}
-			fingerprints.add(fingerprint);
+			let slots = fingerprints.get(fingerprint);
+			if (!slots) {
+				slots = [];
+				fingerprints.set(fingerprint, slots);
+			}
+			slots.push(occurrence);
 		}
 	}
 	return byCandidate;

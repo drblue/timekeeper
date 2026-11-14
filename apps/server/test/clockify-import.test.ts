@@ -409,18 +409,113 @@ describe('Clockify mapping and import', () => {
 		expect(changedChoice.rows[1]?.status).toBe('already-imported');
 	});
 
-	it('blocks in-file identical rows and possible corrections until explicitly excluded', async () => {
+	it('defaults an identical pair to one, lets a review retain both and keeps exact occurrence slots across later exports', async () => {
 		const duplicates = await stage([{}, {}]);
-		const duplicateReview = await review({ stageId: duplicates.stageId, defaults, rows: [] });
-		expect(duplicateReview.rows.map(({ issues }) => issues)).toEqual([['duplicate-source'], ['duplicate-source']]);
-		const one = await review({ stageId: duplicates.stageId, defaults, rows: [{ line: 3, exclude: true }] });
-		expect(one.counts).toMatchObject({ new: 1, excluded: 1 });
-		expect((await commit(one.previewToken)).statusCode).toBe(200);
-		const corrections = await stage([{ Description: 'Corrected source description' }, {}]);
-		const correctionReview = await review({ stageId: corrections.stageId, rows: [] });
-		expect(correctionReview).toMatchObject({ canCommit: false, rows: [
-			{ status: 'blocked', issues: ['possible-correction'] }, { status: 'already-imported' },
+		const input = { stageId: duplicates.stageId, defaults, rows: [] };
+		const defaultReview = await review(input);
+		const { fingerprint } = defaultReview.duplicateGroups[0]!;
+		expect(defaultReview).toMatchObject({
+			canCommit: true,
+			counts: { new: 1, duplicateOmitted: 1 },
+			duplicateGroups: [{ fingerprint, lines: [2, 3], existingCount: 0, selectedCount: 1, newCount: 1 }],
+			rows: [{ line: 2, status: 'new' }, { line: 3, status: 'duplicate-omitted' }],
+		});
+		expect(await database.entry.count()).toBe(0);
+		expect(await database.clockifyImportIdentity.count()).toBe(0);
+		const explicit = await review({ ...input, multiplicities: [{ fingerprint, count: 2 }], rows: [
+			{ line: 3, billing: { mode: 'billable', rateOrePerHour: '0' } },
 		] });
+		expect(explicit.counts).toMatchObject({ new: 2, duplicateOmitted: 0 });
+		expect(explicit.rows[1]?.approved?.rateOrePerHour).toBe('0');
+		const key = randomUUID();
+		const result = await commit(explicit.previewToken, key);
+		expect(result.statusCode, result.body).toBe(200);
+		expect(result.json()).toMatchObject({ createdCount: 2, duplicateOmittedCount: 0 });
+		expect((await commit(explicit.previewToken, key)).json()).toEqual(result.json());
+		expect((await commit(defaultReview.previewToken)).json()).toMatchObject({ code: 'CLOCKIFY_PREVIEW_CHANGED' });
+		const initialSlots = await database.clockifyImportIdentity.findMany({ where: { fingerprint }, orderBy: { occurrence: 'asc' } });
+		expect(initialSlots.map(({ occurrence }) => occurrence)).toEqual([1, 2]);
+		expect(new Set(initialSlots.map(({ entryId }) => entryId)).size).toBe(2);
+		expect((await database.entry.findUniqueOrThrow({ where: { id: initialSlots[1]!.entryId } })).assignedRateOrePerHour).toBe(0n);
+		expect((await request(`${entriesPath}/${initialSlots[1]!.entryId}/delete`, { revision: 1 })).statusCode).toBe(200);
+
+		const subset = await stage([{}]);
+		const subsetReview = await review({ stageId: subset.stageId, rows: [] });
+		expect(subsetReview.counts).toMatchObject({ new: 0, alreadyImported: 1 });
+		expect((await commit(subsetReview.previewToken)).json()).toMatchObject({ createdCount: 0, alreadyImportedCount: 1 });
+
+		const larger = await stage([{}, { ...sampleRows()[0] }, {}, {}], [...headers].reverse());
+		const largerInput = { stageId: larger.stageId, defaults: { billing: historicalBilling, association: noAssociation }, rows: [] };
+		const largerReview = await review(largerInput);
+		expect(largerReview.counts).toMatchObject({ new: 1, alreadyImported: 2, duplicateOmitted: 1 });
+		expect(largerReview.duplicateGroups).toEqual([{ fingerprint, lines: [2, 4, 5], existingCount: 2, selectedCount: 2, newCount: 0 }]);
+		const lower = await review({ ...largerInput, multiplicities: [{ fingerprint, count: 1 }] });
+		expect(lower.counts).toMatchObject({ new: 1, alreadyImported: 1, duplicateOmitted: 2 });
+		const increased = await review({ ...largerInput, multiplicities: [{ fingerprint, count: 3 }] });
+		expect(increased.counts).toMatchObject({ new: 2, alreadyImported: 2, duplicateOmitted: 0 });
+		expect((await commit(increased.previewToken)).json()).toMatchObject({ createdCount: 2, alreadyImportedCount: 2 });
+		const resultingSlots = await database.clockifyImportIdentity.findMany({ where: { fingerprint }, orderBy: { occurrence: 'asc' } });
+		expect(resultingSlots.map(({ occurrence, entryId }) => ({ occurrence, entryId })).slice(0, 2)).toEqual(
+			initialSlots.map(({ occurrence, entryId }) => ({ occurrence, entryId })),
+		);
+		expect(resultingSlots.map(({ occurrence }) => occurrence)).toEqual([1, 2, 3]);
+		expect(await database.entry.count({ where: { id: initialSlots[1]!.entryId, deletedAt: { not: null } } })).toBe(1);
+	});
+
+	it('fills a free occurrence without renumbering a surviving claim', async () => {
+		const staged = await stage([{}, {}]);
+		const input = { stageId: staged.stageId, defaults, rows: [] };
+		const { fingerprint } = (await review(input)).duplicateGroups[0]!;
+		const two = await review({ ...input, multiplicities: [{ fingerprint, count: 2 }] });
+		expect((await commit(two.previewToken)).statusCode).toBe(200);
+		const original = await database.clockifyImportIdentity.findMany({ where: { fingerprint }, orderBy: { occurrence: 'asc' } });
+		await database.clockifyImportIdentity.deleteMany({ where: { fingerprint, occurrence: 1 } });
+
+		const client = await database.client.findFirstOrThrow();
+		const project = await database.project.findFirstOrThrow();
+		const next = await review({
+			...input, multiplicities: [{ fingerprint, count: 2 }],
+			defaults: { billing: historicalBilling, association: {
+				client: { mode: 'existing', id: client.id, revision: client.revision },
+				project: { mode: 'existing', id: project.id, revision: project.revision },
+			} },
+		});
+		expect(next.duplicateGroups[0]).toMatchObject({ existingCount: 1, selectedCount: 2, newCount: 1 });
+		expect((await commit(next.previewToken)).json()).toMatchObject({ createdCount: 1, alreadyImportedCount: 1 });
+		const after = await database.clockifyImportIdentity.findMany({ where: { fingerprint }, orderBy: { occurrence: 'asc' } });
+		expect(after.map(({ occurrence }) => occurrence)).toEqual([1, 2]);
+		expect(after[0]!.entryId).not.toBe(original[0]!.entryId);
+		expect(after[1]!.entryId).toBe(original[1]!.entryId);
+	});
+
+	it('validates eligible group counts and leaves possible corrections blocked', async () => {
+		const duplicates = await stage([{}, {}]);
+		const input = { stageId: duplicates.stageId, defaults, rows: [] };
+		const group = (await review(input)).duplicateGroups[0]!;
+		for (const invalid of [
+			{ ...input, multiplicities: [{ fingerprint: group.fingerprint, count: 3 }] },
+			{ ...input, multiplicities: [{ fingerprint: group.fingerprint, count: 2 }], rows: [{ line: 3, exclude: true }] },
+			{ ...input, multiplicities: [{ fingerprint: 'a'.repeat(64), count: 1 }] },
+		]) {
+			const response = await request(clockifyReviewPath, invalid);
+			expect(response.statusCode).toBe(422);
+			expect(response.json()).toMatchObject({ code: 'CLOCKIFY_INVALID_MULTIPLICITY' });
+		}
+		const one = await review({ ...input, rows: [{ line: 3, billing: { mode: 'billable', rateOrePerHour: null } }] });
+		expect(one.rows[1]?.status).toBe('duplicate-omitted');
+		expect((await commit(one.previewToken)).json()).toMatchObject({ createdCount: 1, duplicateOmittedCount: 1 });
+		const corrections = await stage([{ Description: 'Corrected source description' }, {}, {}]);
+		const correctionInput = { stageId: corrections.stageId, defaults, rows: [] };
+		const correctionReview = await review(correctionInput);
+		expect(correctionReview).toMatchObject({ canCommit: false, rows: [
+			{ status: 'blocked', issues: ['possible-correction'] }, { status: 'already-imported' }, { status: 'duplicate-omitted' },
+		] });
+		const extra = await review({ ...correctionInput, multiplicities: [{ fingerprint: group.fingerprint, count: 2 }] });
+		expect(extra.rows.map(({ status, issues }) => ({ status, issues }))).toEqual([
+			{ status: 'blocked', issues: ['possible-correction'] },
+			{ status: 'already-imported', issues: [] },
+			{ status: 'blocked', issues: ['possible-correction'] },
+		]);
 		expect(await database.entry.count()).toBe(1);
 	});
 
