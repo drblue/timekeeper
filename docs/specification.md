@@ -89,7 +89,7 @@ Stopping preserves the recorded time even when completion information is absent.
 
 Offer Duration only and Timed modes in the same form. Duration only takes a work date and an editable hours:minutes:seconds field. Timed work takes start and end dates and times and uses the same duration format.
 
-Accept compact digits and colon-separated values. For example, `1030` and `145` become `10:30` and `01:45`. Duration inputs `3000`, `11500`, and `80000` display as `00:30:00`, `01:15:00`, and `08:00:00`. An existing value opens for editing as compact digits.
+Accept compact digits and colon-separated values. Clock inputs `0900`, `1030`, and `145` display as `09:00`, `10:30`, and `01:45` when the field loses focus. Duration inputs `3000`, `11500`, and `80000` display as `00:30:00`, `1:15:00`, and `08:00:00`. A duration with zero hours or an exact number of hours displays at least two hour digits. Other durations show the hour count without leading zeros. Existing start, end, and duration values appear as compact digits when focused.
 
 Editing Duration recalculates End from Start. Editing End recalculates Duration. A subsequent Start edit preserves whichever of End or Duration was last edited. Show the end date when the calculation crosses midnight. Reject an end before its start and reject zero-duration completion. Warn about overlapping known intervals, but permit them. Duration-only work cannot be checked for exact overlap.
 

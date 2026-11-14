@@ -21,9 +21,11 @@ export function TimeInput({ id, label, kind, value, error, hint, submitted, onCh
 	const clock = kind === 'clock' ? parseClockInput(value) : null;
 	const seconds = kind === 'duration' ? parseDurationInput(value) : null;
 	const formatted = clock ? displayClock(clock) : seconds !== null ? formatDurationInput(seconds) : null;
+	const displayValue = formatted && seconds !== null && seconds >= 3600 && seconds % 3600 !== 0 && formatted.startsWith('0')
+		? formatted.slice(1) : formatted;
 	const visibleValue = focused
 		? !editing && formatted ? formatted.replaceAll(':', '') : value
-		: formatted ?? value;
+		: displayValue ?? value;
 	const message = submitted ? error : undefined;
 
 	useLayoutEffect(() => {

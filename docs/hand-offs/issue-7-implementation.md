@@ -9,6 +9,8 @@ The existing form supports Duration only and Timed modes, one duration field, co
 
 The browser and server share the Stockholm resolver with pinned `temporal-polyfill` 1.0.8. The server stores resolved whole-second UTC boundaries and daily allocations in the same transaction. It checks half-open overlap before writing, retains existing billing defaults, and conserves seconds and öre across calendar dates. Migration 0004 preserves duration-only entries and allocations.
 
+A later editor display correction matches the requested blur examples `3000` → `00:30:00`, `11500` → `1:15:00`, and `80000` → `08:00:00`. Focused entry values still use compact digits, and saved time and allocation values are unchanged.
+
 ## Verification
 
 - Type checking, 37 server tests, production build, and 14 pinned Playwright Chromium tests passed. Desktop and phone browser walkthroughs covered compact keyboard input, mode switching, overnight and DST cases, overlap, and focus recovery. Checked rendered widths down to 320 pixels.

@@ -203,6 +203,13 @@ test('edits compact time by keyboard and records timed work across midnight', as
 	await duration.pressSequentially('80000');
 	await duration.press('Tab');
 	await expect(duration).toHaveValue('08:00:00');
+	await association.press('Shift+Tab');
+	await expect(duration).toHaveValue('080000');
+	await duration.pressSequentially('11500');
+	await duration.press('Tab');
+	await expect(duration).toHaveValue('1:15:00');
+	await association.press('Shift+Tab');
+	await expect(duration).toHaveValue('011500');
 
 	await page.getByRole('radio', { name: 'Timed', exact: true }).check();
 	const startDate = page.getByLabel('Start date', { exact: true });
@@ -217,14 +224,17 @@ test('edits compact time by keyboard and records timed work across midnight', as
 	await expect(startTime).toHaveValue('09:00');
 	await expect(endDate).toBeFocused();
 	await endDate.press('Shift+Tab');
+	await expect(startTime).toHaveValue('0900');
 	await startTime.pressSequentially('1030');
 	await startTime.press('Tab');
 	await expect(startTime).toHaveValue('10:30');
 	await endDate.press('Shift+Tab');
+	await expect(startTime).toHaveValue('1030');
 	await startTime.pressSequentially('145');
 	await startTime.press('Tab');
 	await expect(startTime).toHaveValue('01:45');
 	await endDate.press('Shift+Tab');
+	await expect(startTime).toHaveValue('0145');
 	await startTime.pressSequentially('23:30:15');
 	await startTime.press('Tab');
 	await expect(startTime).toHaveValue('23:30:15');
@@ -234,16 +244,20 @@ test('edits compact time by keyboard and records timed work across midnight', as
 	await expect(endDate).toHaveValue('2026-11-13');
 	await expect(endTime).toHaveValue('00:45:15');
 	await duration.press('Tab');
-	await expect(duration).toHaveValue('01:15:00');
+	await expect(duration).toHaveValue('1:15:00');
 	await expect(page.getByText('Changing the start keeps the duration.')).toBeVisible();
+	await endTime.focus();
+	await expect(endTime).toHaveValue('004515');
+	await endTime.press('Tab');
+	await expect(endTime).toHaveValue('00:45:15');
 	await startTime.fill('2300');
 	await expect(endTime).toHaveValue('00:15');
 	await endTime.fill('0045');
-	await expect(duration).toHaveValue('01:45:00');
+	await expect(duration).toHaveValue('1:45:00');
 	await expect(page.getByText('Changing the start keeps the end.')).toBeVisible();
 	await startTime.fill('2330');
 	await expect(endTime).toHaveValue('00:45');
-	await expect(duration).toHaveValue('01:15:00');
+	await expect(duration).toHaveValue('1:15:00');
 
 	await endDate.fill('2026-11-12');
 	await page.getByRole('button', { name: 'Save time entry', exact: true }).click();
