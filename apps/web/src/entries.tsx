@@ -19,6 +19,7 @@ import { WorkListFilters } from './work-list-filters';
 import { effectiveWorkListSearch, unpinWorkListSearch, workListQueryString } from './work-list-search';
 import type { WorkListLocation } from './work-list-search';
 import { formatSek } from './money';
+import { reportFromWorkList } from './report-search';
 
 const workListRoute = getRouteApi('/protected/entries');
 const entryDetailRoute = getRouteApi('/protected/entries/$entryId');
@@ -95,6 +96,7 @@ export function Entries() {
 	const navigate = useNavigate({ from: '/entries' });
 	const location = workListRoute.useSearch();
 	const movedToTrash = useLocation({ select: ({ state }) => state.entryMovedToTrash === true });
+	const reportReturned = useLocation({ select: ({ state }) => state.reportPreviewReturned === true });
 	const search = effectiveWorkListSearch(location);
 	const filterKey = workListQueryString(search);
 	const positionKey = (session.account?.email ?? '') + '\n' + workListQueryString(unpinWorkListSearch(location));
@@ -109,6 +111,7 @@ export function Entries() {
 	const [bulkFeedback, setBulkFeedback] = useState('');
 	const [savedId, setSavedId] = useState<string | null>(null);
 	const editorTrigger = useRef<HTMLButtonElement>(null);
+	const reportTrigger = useRef<HTMLAnchorElement>(null);
 	const results = useRef<HTMLHeadingElement>(null);
 	const heading = useRef<HTMLHeadingElement>(null);
 	const restored = useRef<string | null>(null);
@@ -152,6 +155,10 @@ export function Entries() {
 	useLayoutEffect(() => {
 		if (!data || entries.isFetching || entries.isError || restored.current === filterKey) return;
 		restored.current = filterKey;
+		if (reportReturned) {
+			(reportTrigger.current ?? heading.current)?.focus();
+			return;
+		}
 		if (pageFocus.current) {
 			pageFocus.current = false;
 			results.current?.focus();
@@ -172,7 +179,7 @@ export function Entries() {
 		const offset = remembered?.returnOffset ?? location.returnOffset ?? 0;
 		row.querySelector('a')?.focus({ preventScroll: true });
 		window.scrollBy(0, row.getBoundingClientRect().top - offset);
-	}, [data, entries.isError, entries.isFetching, filterKey, location.returnOffset, location.returnRow, movedToTrash, positionKey]);
+	}, [data, entries.isError, entries.isFetching, filterKey, location.returnOffset, location.returnRow, movedToTrash, positionKey, reportReturned]);
 
 	const showPaging = data && data.totalPages > 1;
 	const { page: _page, sort: _sort, ...bulkFilters } = search;
@@ -196,6 +203,11 @@ export function Entries() {
 			) : null}
 			{bulkFeedback ? <p className="feedback" role="status">{bulkFeedback}</p> : null}
 			<WorkListFilters search={unpinWorkListSearch(location)} range={data?.range} onApply={apply} />
+			{data && !entries.isError ? (
+				<div className="form-actions">
+					<Link className="action-link" ref={reportTrigger} to="/reports/preview" search={reportFromWorkList(location, data.range)}>Report preview</Link>
+				</div>
+			) : null}
 			<WorkListBulk scope={bulkScope} account={session.account?.email ?? ''} filters={bulkFilters} range={data?.range}
 				hasEntries={!!data && !entries.isError && data.totalRows + data.incomplete.length > 0} onSaved={bulkSaved}>
 				{(selection) => entries.isError ? (

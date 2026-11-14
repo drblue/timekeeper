@@ -16,6 +16,8 @@ import { registerCatalog } from './catalog/routes.ts';
 import type { CatalogStore } from './catalog/store.ts';
 import { registerEntries } from './entries/routes.ts';
 import type { EntryStore } from './entries/store.ts';
+import { registerReports } from './reports/routes.ts';
+import type { createReportPreview } from './reports/routes.ts';
 import { registerTimer } from './timer/routes.ts';
 import type { TimerStore } from './timer/store.ts';
 
@@ -25,10 +27,11 @@ interface AppOptions {
 	auth?: AuthOptions;
 	catalog?: CatalogStore;
 	entries?: EntryStore;
+	reportPreview?: ReturnType<typeof createReportPreview>;
 	timer?: TimerStore;
 }
 
-export async function createApp({ webRoot, logger = false, auth, catalog, entries, timer }: AppOptions = {}) {
+export async function createApp({ webRoot, logger = false, auth, catalog, entries, timer, reportPreview }: AppOptions = {}) {
 	if (webRoot) {
 		await access(resolve(webRoot, 'index.html'));
 	}
@@ -146,6 +149,9 @@ export async function createApp({ webRoot, logger = false, auth, catalog, entrie
 	if (entries) {
 		registerEntries(app, entries);
 	}
+	if (reportPreview) {
+		registerReports(app, reportPreview);
+	}
 	if (timer) {
 		registerTimer(app, timer);
 	}
@@ -188,7 +194,7 @@ export async function createApp({ webRoot, logger = false, auth, catalog, entrie
 				immutable: true,
 			});
 
-			for (const path of ['/', '/login', '/password', '/clients', '/projects', '/entries', '/entries/trash', '/entries/:entryId']) {
+			for (const path of ['/', '/login', '/password', '/clients', '/projects', '/entries', '/entries/trash', '/entries/:entryId', '/reports/preview']) {
 				web.get(path, { schema: { hide: true } }, (_request, reply) => {
 					return reply.header('Cache-Control', 'no-cache').sendFile('index.html', webRoot, { cacheControl: false });
 				});

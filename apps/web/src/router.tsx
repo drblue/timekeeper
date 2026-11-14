@@ -8,6 +8,7 @@ import { Login } from './login';
 import { Password } from './password';
 import { writeBulkOperation } from './bulk-operation';
 import { writeTimerOperation } from './timer-operation';
+import { validateReportSearch } from './report-search';
 import { validateWorkListLocation } from './work-list-search';
 import { WorkspaceTimer } from './workspace-timer';
 
@@ -150,6 +151,13 @@ const entryTrashRoute = createRoute({
 	component: lazyRouteComponent(() => import('./entry-trash'), 'EntryTrash'),
 });
 
+const reportPreviewRoute = createRoute({
+	getParentRoute: () => protectedRoute,
+	path: '/reports/preview',
+	validateSearch: validateReportSearch,
+	component: lazyRouteComponent(() => import('./report-preview'), 'ReportPreview'),
+});
+
 export const router = createRouter({
 	parseSearch: (search) => Object.fromEntries(new URLSearchParams(search)),
 	stringifySearch: (search) => {
@@ -162,13 +170,14 @@ export const router = createRouter({
 	},
 	routeTree: rootRoute.addChildren([
 		loginRoute,
-		protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute, entriesRoute, entryDetailRoute, entryTrashRoute]),
+		protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute, entriesRoute, entryDetailRoute, entryTrashRoute, reportPreviewRoute]),
 	]),
 });
 
 declare module '@tanstack/react-router' {
 	interface HistoryState {
 		entryMovedToTrash?: boolean;
+		reportPreviewReturned?: boolean;
 	}
 
 	interface Register {

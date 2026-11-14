@@ -9,10 +9,11 @@ import type { WorkListSearch } from './work-list-search';
 
 type DateRange = { from: string; to: string };
 
-export function WorkListFilters({ search, range, onApply }: {
+export function WorkListFilters({ search, range, onApply, showSort = true }: {
 	search: WorkListSearch;
 	range?: DateRange;
 	onApply: (search: WorkListSearch) => void;
+	showSort?: boolean;
 }) {
 	const { refresh } = useSession();
 	const id = useId();
@@ -173,12 +174,14 @@ export function WorkListFilters({ search, range, onApply }: {
 									{Object.entries(billabilityChoices).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
 								</select>
 							</div>
-							<div className="field">
-								<label htmlFor={id + '-sort'}>Sort</label>
-								<select id={id + '-sort'} name="sort" defaultValue={search.sort ?? 'newest'}>
-									{Object.entries(workSortChoices).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-								</select>
-							</div>
+							{showSort ? (
+								<div className="field">
+									<label htmlFor={id + '-sort'}>Sort</label>
+									<select id={id + '-sort'} name="sort" defaultValue={search.sort ?? 'newest'}>
+										{Object.entries(workSortChoices).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+									</select>
+								</div>
+							) : null}
 						</div>
 						{clients.isPending || projects.isPending ? <p className="field-hint" role="status">Loading clients and projects…</p> : null}
 						{clients.isError || projects.isError ? (

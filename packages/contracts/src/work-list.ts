@@ -16,7 +16,7 @@ export const WorkListInvoice = Type.Union([Type.Literal('all'), Type.Literal('in
 export const WorkListBillability = Type.Union([Type.Literal('all'), Type.Literal('billable'), Type.Literal('non-billable')]);
 export const WorkListSort = Type.Union([Type.Literal('newest'), Type.Literal('oldest')]);
 
-export const WorkListQuery = Type.Object({
+export const workScopeFields = {
 	preset: Type.Optional(WorkListPreset),
 	from: Type.Optional(EntryLocalDate),
 	to: Type.Optional(EntryLocalDate),
@@ -26,6 +26,10 @@ export const WorkListQuery = Type.Object({
 	billability: Type.Optional(WorkListBillability),
 	description: Type.Optional(Type.String({ maxLength: 256 })),
 	invoiceNumber: Type.Optional(Type.String({ maxLength: 256 })),
+};
+
+export const WorkListQuery = Type.Object({
+	...workScopeFields,
 	sort: Type.Optional(WorkListSort),
 	page: Type.Optional(Type.String({ pattern: '^[1-9][0-9]{0,8}$' })),
 	pageSize: Type.Optional(Type.String({ pattern: '^[1-9][0-9]{0,2}$' })),

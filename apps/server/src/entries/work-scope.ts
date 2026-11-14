@@ -3,6 +3,7 @@ import type { WorkListQuery, WorkListRange } from '@timekeeper/contracts';
 import { ApiRequestError } from '../api-error.ts';
 import type { Prisma } from '../generated/prisma/client.ts';
 import { activeEntryWhere } from './entry-record.ts';
+import { workRelations } from './work-settings.ts';
 
 type WorkFilters = Pick<WorkListQuery, 'clientId' | 'projectId' | 'invoice' | 'billability' | 'description' | 'invoiceNumber'>;
 
@@ -11,6 +12,8 @@ export interface WorkScope {
 	startAt: Date;
 	endBefore: Date;
 	entryWhere: Prisma.EntryWhereInput;
+	clientName: string | null;
+	projectName: string | null;
 	matchesSearch: (entry: { description: string; invoiceNumber: string | null }) => boolean;
 	incompatibleSelection: boolean;
 }
@@ -47,10 +50,11 @@ export async function resolveWorkScope(
 		if (error instanceof RangeError) throw new ApiRequestError(422, 'INVALID_DATE_RANGE', 'Enter valid Stockholm calendar dates.');
 		throw error;
 	}
-	if (clientId && !await transaction.client.findUnique({ where: { id: clientId, accountId }, select: { id: true } })) {
+	const client = clientId && await transaction.client.findUnique({ where: { id: clientId, accountId }, select: { name: true } });
+	if (clientId && !client) {
 		throw new ApiRequestError(422, 'INVALID_CLIENT', 'Choose a client from your work history.');
 	}
-	const project = projectId && await transaction.project.findUnique({ where: { id: projectId, accountId }, select: { clientId: true } });
+	const project = projectId && await transaction.project.findUnique({ where: { id: projectId, accountId }, select: { clientId: true, name: true } });
 	if (projectId && !project) throw new ApiRequestError(422, 'INVALID_PROJECT', 'Choose a project from your work history.');
 	const incompatibleSelection = Boolean(clientId && project && project.clientId !== clientId);
 	const conditions: Prisma.EntryWhereInput[] = [];
@@ -63,6 +67,7 @@ export async function resolveWorkScope(
 	const invoiceNumber = searchText(filters.invoiceNumber?.trim() ?? '');
 	return {
 		range, startAt, endBefore, entryWhere: { ...activeEntryWhere(accountId), projectId, AND: conditions }, incompatibleSelection,
+		clientName: client ? client.name : null, projectName: project ? project.name : null,
 		matchesSearch(entry) {
 			return (!description || searchText(entry.description).includes(description))
 				&& (!invoiceNumber || (entry.invoiceNumber !== null && searchText(entry.invoiceNumber).includes(invoiceNumber)));
@@ -70,14 +75,22 @@ export async function resolveWorkScope(
 	};
 }
 
-export async function readCompletedWork(transaction: Prisma.TransactionClient, scope: WorkScope, entryIds?: string[]) {
+const workEntryFields = { description: true, invoiceNumber: true, startAt: true, createdAt: true } as const;
+const reportEntryFields = { ...workEntryFields, ...workRelations, projectId: true, directClientId: true, assignedRateOrePerHour: true } as const;
+const workAllocationFields = { entryId: true, localDate: true, seconds: true, amountOre: true } as const;
+type CompletedWorkRow = Prisma.EntryDayAllocationGetPayload<{ select: typeof workAllocationFields & { entry: { select: typeof workEntryFields } } }>;
+type ReportWorkRow = Prisma.EntryDayAllocationGetPayload<{ select: typeof workAllocationFields & { entry: { select: typeof reportEntryFields } } }>;
+
+export function readCompletedWork(transaction: Prisma.TransactionClient, scope: WorkScope, entryIds?: string[]): Promise<CompletedWorkRow[]>;
+export function readCompletedWork(transaction: Prisma.TransactionClient, scope: WorkScope, entryIds: undefined, includeReportFields: true): Promise<ReportWorkRow[]>;
+export async function readCompletedWork(transaction: Prisma.TransactionClient, scope: WorkScope, entryIds?: string[], includeReportFields = false) {
 	if (scope.incompatibleSelection) return [];
 	const rows = await transaction.entryDayAllocation.findMany({
 		where: { entryId: entryIds ? { in: entryIds } : undefined, localDate: { gte: scope.range.from, lte: scope.range.to },
 			entry: { ...scope.entryWhere, completion: 'complete' } },
 		select: {
-			entryId: true, localDate: true, seconds: true, amountOre: true,
-			entry: { select: { description: true, invoiceNumber: true, startAt: true, createdAt: true } },
+			...workAllocationFields,
+			entry: { select: includeReportFields ? reportEntryFields : workEntryFields },
 		},
 	});
 	return rows.filter(({ entry }) => scope.matchesSearch(entry));

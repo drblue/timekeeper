@@ -60,6 +60,15 @@ export function stockholmDayStart(localDate: string): number {
 	return Temporal.PlainDate.from(localDate).toZonedDateTime(entryTimeZone).epochMilliseconds;
 }
 
+export function calendarDaysInclusive(from: string, to: string): number {
+	return Temporal.PlainDate.from(from).until(Temporal.PlainDate.from(to), { largestUnit: 'day' }).days + 1;
+}
+
+export function calendarDates(from: string, count: number): string[] {
+	const start = Temporal.PlainDate.from(from);
+	return Array.from({ length: count }, (_, index) => start.add({ days: index }).toString());
+}
+
 export function stockholmDateRange(preset: Exclude<WorkListPreset, 'custom'>, instant: string): WorkListRange {
 	const today = Temporal.Instant.from(instant).toZonedDateTimeISO(entryTimeZone).toPlainDate();
 	const firstOfMonth = today.with({ day: 1 });

@@ -25,18 +25,22 @@ import {
 	parseEntryTrashResponse,
 	parseEntryResponse,
 	parseProjectResponse,
+	parseReportPreviewResponse,
 	parseTrashedEntryResponse,
 	parseWorkListResponse,
 	projectsPath,
+	reportPreviewPath,
 	workListPath,
 } from '@timekeeper/contracts';
-import type { BulkEntryPreviewBody, CreateDurationEntryBody, CreateTimedEntryBody, EntryEditBody, EntryResponse, WorkListQuery } from '@timekeeper/contracts';
+import type { BulkEntryPreviewBody, CreateDurationEntryBody, CreateTimedEntryBody, EntryEditBody, EntryResponse, ReportPreviewQuery, WorkListQuery } from '@timekeeper/contracts';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { openDatabase } from '../src/auth/database.ts';
 import { createAuthStore, randomToken } from '../src/auth/store.ts';
 import { createCatalogStore } from '../src/catalog/store.ts';
 import { createEntryStore } from '../src/entries/store.ts';
+import { buildReportData } from '../src/reports/report-data.ts';
+import { createReportPreview } from '../src/reports/routes.ts';
 
 const origin = 'https://timekeeper.example.test';
 
@@ -111,6 +115,7 @@ describe('Manual entries', () => {
 			auth: { config: { origin, trustedProxyAddresses: new Set() }, store: await createAuthStore(database) },
 			catalog: createCatalogStore(database),
 			entries: createEntryStore(database, () => new Date(now)),
+			reportPreview: createReportPreview(database, () => new Date(now)),
 		});
 		session = await sessionFor(accountId);
 	});
@@ -130,6 +135,13 @@ describe('Manual entries', () => {
 		expect(result.statusCode, result.body).toBe(200);
 		expect(result.headers['cache-control']).toBe('no-store');
 		return parseWorkListResponse(result.json());
+	}
+
+	async function readReport(query: ReportPreviewQuery = {}) {
+		const result = await request('GET', `${reportPreviewPath}?${new URLSearchParams(query)}`);
+		expect(result.statusCode, result.body).toBe(200);
+		expect(result.headers['cache-control']).toBe('no-store');
+		return parseReportPreviewResponse(result.json());
 	}
 
 	async function bulkPreview(input: BulkEntryPreviewBody) {
@@ -1006,5 +1018,93 @@ describe('Manual entries', () => {
 		expect(children.filter(({ invoicedAt }) => invoicedAt === null)).toHaveLength(2);
 		expect(children.reduce((sum, { durationSeconds }) => sum + durationSeconds, 0)).toBe(source.durationSeconds);
 		expect(children.reduce((sum, { billableAmountOre }) => sum + (billableAmountOre ?? 0n), 0n).toString()).toBe(source.billableAmountOre);
+	});
+
+	it('builds a report from the same persisted filtered portions and totals as the work list', async () => {
+		const client = await addClient('Client', 80_000n);
+		const project = await addProject(client.id);
+		const source = await createTimedEntry({ startLocal: '2026-11-16T23:30', endLocal: '2026-11-17T00:30',
+			description: 'Årsrapport 100%', projectId: project.id, rateOverrideOrePerHour: '1' });
+		const unrelated = await createEntry({ localDate: '2026-11-17', projectId: project.id, description: 'Årsrapport 100x' });
+		await database.entry.update({ where: { id: unrelated.id }, data: { invoicedAt: new Date(now), invoiceNumber: 'SE_001' } });
+		const deleted = await createEntry({ localDate: '2026-11-17', projectId: project.id, description: 'Årsrapport 100%' });
+		expect((await request('POST', `${entriesPath}/${deleted.id}/delete`, { revision: 1 })).statusCode).toBe(200);
+		await database.entry.create({ data: {
+			id: randomUUID(), accountId, kind: 'timed', completion: 'incomplete', description: 'Årsrapport 100%', localDate: '2026-11-17',
+			startAt: new Date('2026-11-17T12:00:00.000Z'), endAt: new Date('2026-11-17T12:01:00.000Z'), durationSeconds: 60,
+			projectId: project.id, billable: true, invoicedAt: new Date(now), invoiceNumber: 'SE_001',
+		} });
+		expect((await request('POST', `${entriesPath}/${source.id}/invoice`, { revision: 1, invoiceNumber: 'SE_001' })).statusCode).toBe(200);
+		await database.client.update({ where: { id: client.id }, data: { name: 'Archived and renamed', archivedAt: new Date(now) } });
+		const filters = { from: '2026-11-17', to: '2026-11-19', clientId: client.id, projectId: project.id,
+			invoice: 'invoiced', billability: 'billable', description: ' a\u030arsrapport 100% ', invoiceNumber: 'se_001' } as const;
+		const list = await readWork(filters);
+		const preview = await readReport({ ...filters, showMoney: 'true' });
+		expect(preview).toMatchObject({
+			totalSeconds: list.totals.seconds, totalAmountOre: list.totals.amountOre, showMoney: true, incompatibleSelection: false,
+			scope: { from: filters.from, to: filters.to, clientId: client.id, clientName: 'Archived and renamed', projectId: project.id },
+			days: [{ date: '2026-11-17', seconds: 1_800 }, { date: '2026-11-18', seconds: 0 }, { date: '2026-11-19', seconds: 0 }],
+			projectShares: [{ projectId: project.id, clientName: 'Archived and renamed', seconds: 1_800 }],
+			summaries: [{ clientId: client.id, projectId: project.id, description: 'Årsrapport 100%', seconds: 1_800, hourlyRateOre: '1', amountOre: '0' }],
+		});
+		expect(list.incomplete).toHaveLength(1);
+		expect(preview.totalAmountOre).toBe('0');
+		const immutable = await buildReportData(database, accountId, filters, new Date(now), true);
+		expect(immutable.details).toMatchObject([{ entryId: source.id, date: '2026-11-17', seconds: 1_800, amountOre: 0n }]);
+		expect(Object.isFrozen(immutable) && Object.isFrozen(immutable.details?.[0]) && Object.isFrozen(immutable.scope)).toBe(true);
+	});
+
+	it('preserves distinct IDs and case in description summaries and groups by rate only when shown', async () => {
+		const firstClient = await addClient('Same client', 80_000n);
+		const secondClient = await addClient('Same client', 80_000n);
+		const firstProject = await addProject(firstClient.id);
+		const secondProject = await addProject(firstClient.id);
+		const base = { localDate: '2026-11-16', durationSeconds: 3_600, description: 'Review' };
+		const source = await createEntry({ ...base, projectId: firstProject.id });
+		await database.entry.update({ where: { id: source.id }, data: { description: '  Review  ' } });
+		await createEntry({ ...base, projectId: firstProject.id, rateOverrideOrePerHour: '0' });
+		await createEntry({ ...base, projectId: firstProject.id, description: 'review' });
+		await createEntry({ ...base, projectId: secondProject.id });
+		await createEntry({ ...base, directClientId: firstClient.id });
+		await createEntry({ ...base, directClientId: secondClient.id });
+		await createEntry({ ...base, durationSeconds: 1 });
+		const timeOnly = await readReport();
+		expect(timeOnly).toMatchObject({ showMoney: false, totalSeconds: 21_601, totalAmountOre: '400000' });
+		expect(timeOnly.projectShares).toEqual(expect.arrayContaining([
+			{ projectId: firstProject.id, projectName: 'Website', clientName: 'Same client', seconds: 10_800 },
+			{ projectId: secondProject.id, projectName: 'Website', clientName: 'Same client', seconds: 3_600 },
+			{ projectId: null, projectName: null, clientName: null, seconds: 7_201 },
+		]));
+		expect(timeOnly.summaries).toHaveLength(6);
+		expect(timeOnly.summaries.filter(({ projectId, description }) => projectId === firstProject.id && description === 'Review'))
+			.toMatchObject([{ seconds: 7_200, amountOre: '80000', hourlyRateOre: null }]);
+		expect(timeOnly.summaries.filter(({ projectId }) => projectId === null).map(({ clientId }) => clientId))
+			.toEqual(expect.arrayContaining([null, firstClient.id, secondClient.id]));
+		const money = await readReport({ showMoney: 'true' });
+		expect(money.summaries).toHaveLength(7);
+		expect(money.summaries.filter(({ projectId, description }) => projectId === firstProject.id && description === 'Review')).toEqual(expect.arrayContaining([
+			expect.objectContaining({ seconds: 3_600, hourlyRateOre: '0', amountOre: '0' }),
+			expect.objectContaining({ seconds: 3_600, hourlyRateOre: '80000', amountOre: '80000' }),
+		]));
+		expect(money.summaries.reduce((total, { amountOre }) => total + BigInt(amountOre), 0n).toString()).toBe(money.totalAmountOre);
+	});
+
+	it('returns complete zero-day series for empty and incompatible reports and validates report bounds and access', async () => {
+		const range = { from: '2026-10-24', to: '2026-10-26' };
+		const empty = await readReport(range);
+		expect(empty).toMatchObject({ totalSeconds: 0, totalAmountOre: '0', projectShares: [], summaries: [],
+			days: [{ date: '2026-10-24', seconds: 0 }, { date: '2026-10-25', seconds: 0 }, { date: '2026-10-26', seconds: 0 }] });
+		const client = await addClient('First client');
+		const another = await addClient('Second client');
+		const project = await addProject(client.id);
+		expect(await readReport({ ...range, clientId: another.id, projectId: project.id })).toMatchObject({ incompatibleSelection: true, totalSeconds: 0 });
+		expect((await request('GET', `${reportPreviewPath}?clientId=${randomUUID()}`)).json()).toMatchObject({ code: 'INVALID_CLIENT' });
+		expect((await request('GET', `${reportPreviewPath}?from=2010-01-01&to=2026-01-01`)).json()).toMatchObject({ code: 'REPORT_RANGE_TOO_LONG' });
+		expect((await request('GET', `${reportPreviewPath}?from=2026-02-29&to=2026-03-01`)).json()).toMatchObject({ code: 'INVALID_DATE_RANGE' });
+		expect((await request('GET', `${reportPreviewPath}?page=2`)).statusCode).toBe(400);
+		expect((await app.inject({ url: reportPreviewPath })).statusCode).toBe(401);
+		const annual = await readReport({ from: '2024-01-01', to: '2024-12-31' });
+		expect(annual.days).toHaveLength(366);
+		expect(annual.days[59]).toEqual({ date: '2024-02-29', seconds: 0 });
 	});
 });
