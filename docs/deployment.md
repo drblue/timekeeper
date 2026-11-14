@@ -121,6 +121,8 @@ The [native Compose verification](native-compose-verification.md) records fresh 
 
 ## Protect the pre-migration snapshot
 
+For scheduled off-host backups and the encrypted restore workflow, see [Back up and restore Timekeeper](backup-recovery.md). The following SQLite procedure also creates a consistent snapshot for a coordinated maintenance window.
+
 With the application stopped and other writers quiesced, use the SQLite command-line tool's `.backup` command. It uses SQLite's backup mechanism to capture a consistent database including committed WAL data. Keep a complete set of any required persistent assets from the same maintenance window. Timekeeper stores report branding in SQLite. Retain the report artifact directory if ready downloads must survive restoration. Use a private working directory on a trusted host. [SQLite Backup API](https://www.sqlite.org/backup.html)
 
 Example for the host paths above. Run with an operator identity that can read the private data bind. Replace the backup directory with a new one under a restricted parent.

@@ -1,0 +1,12 @@
+[Unit]
+Description=Create and verify an encrypted Timekeeper backup
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/timekeeper
+UMask=0077
+TimeoutStartSec=45min
+ExecStart=/usr/bin/docker compose --env-file /etc/timekeeper/backup.env -f compose.backup.yaml run --rm --no-deps backup

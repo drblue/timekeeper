@@ -22,6 +22,8 @@ For development, run `npm run dev:server` and `npm run dev:web` in separate term
 
 For a Raspberry Pi 4 or x86-64 VPS, follow the [Docker Compose deployment guide](docs/deployment.md) for HTTPS, persistent storage, migrations, upgrades, and rollback.
 
+Use the [backup and recovery guide](docs/backup-recovery.md) to schedule encrypted off-host copies and rehearse restoration before relying on production backups.
+
 ## Install in a browser
 
 - In Chrome, open Timekeeper and choose the browser's install control in the address bar or menu when available. On Android, use the browser menu's installation or home-screen action.
