@@ -12,6 +12,7 @@ import type { SubmitEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { ApiRequestError, readApi, writeApi } from './api';
 import { authError, useSession } from './auth';
+import { useOnline } from './connection';
 import { entryAssociation, EntryBillingFields, useEntryBilling } from './entry-billing-fields';
 import { boundaryFromInstant, calculateTiming, durationError, formatDurationInput, parseDurationInput, updateBoundary } from './entry-time';
 import type { EntryBoundary, TimingDraft } from './entry-time';
@@ -58,6 +59,7 @@ function sameTiming(time: EntryEditTime, current: EntryResponse) {
 
 export function EntryEditor({ onClose, onSaved, entry }: EntryEditorProps) {
 	const { session, refresh } = useSession();
+	const online = useOnline();
 	const [baseline, setBaseline] = useState(entry);
 	const billing = useEntryBilling(baseline);
 	const path = baseline ? `${entriesPath}/${encodeURIComponent(baseline.id)}` : entriesPath;
@@ -223,7 +225,7 @@ export function EntryEditor({ onClose, onSaved, entry }: EntryEditorProps) {
 
 	function submit(event: SubmitEvent<HTMLFormElement>) {
 		event.preventDefault();
-		if (pending || !canChoose || stale || locked || preview) return;
+		if (!online || pending || !canChoose || stale || locked || preview) return;
 		const formElement = event.currentTarget;
 		const form = new FormData(formElement);
 		const description = String(form.get('description')).trim();
@@ -415,7 +417,7 @@ export function EntryEditor({ onClose, onSaved, entry }: EntryEditorProps) {
 						<div><dt>Hourly rate</dt><dd>{preview.value.assignedRateOrePerHour === null ? 'No rate' : formatSek(preview.value.assignedRateOrePerHour) + '/hour'}</dd></div>
 					</dl>
 					{preview.value.overlap ? <p className="feedback warning">This time overlaps another timed entry.</p> : null}
-					<button className="primary" type="button" disabled={pending || stale || locked}
+					<button className="primary" type="button" disabled={!online || pending || stale || locked}
 						onClick={() => void saveEdit(preview)}>{pending ? 'Saving…' : preview.value.overlap ? 'Save changes with overlap' : 'Save changes'}</button>
 				</div>
 			) : null}
@@ -423,18 +425,19 @@ export function EntryEditor({ onClose, onSaved, entry }: EntryEditorProps) {
 			{overlap ? (
 				<div className="feedback warning">
 					<p role="alert">This time overlaps another timed entry. You can save it anyway.</p>
-					<button type="button" disabled={pending || !canChoose}
+					<button type="button" disabled={!online || pending || !canChoose}
 						onClick={() => void save({ ...overlap, confirmOverlap: true })}>
 						Save overlapping entry
 					</button>
 				</div>
 			) : null}
 			<div className="form-actions">
-				{!preview ? <button className="primary" type="submit" disabled={pending || !canChoose || stale || locked}>
+				{!preview ? <button className="primary" type="submit" disabled={!online || pending || !canChoose || stale || locked}>
 					{baseline ? pending ? 'Checking…' : 'Preview changes' : pending ? 'Saving…' : 'Save time entry'}
 				</button> : null}
 				<button type="button" onClick={onClose} disabled={pending}>Cancel</button>
 			</div>
+			{!online ? <p className="field-hint">Reconnect to save this draft.</p> : null}
 		</form>
 	);
 }

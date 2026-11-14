@@ -1,6 +1,6 @@
 import { csrfHeader } from '@timekeeper/contracts';
 
-export type RefreshSession = () => Promise<unknown>;
+export type RefreshSession = (reason?: 'authentication-required') => Promise<unknown>;
 
 export class ApiRequestError extends Error {
 	constructor(readonly response: Response, readonly code: string | undefined) {
@@ -24,7 +24,7 @@ export async function readApi<T>(
 ): Promise<T> {
 	const response = await fetch(path, { signal, cache: 'no-store' });
 	if (response.status === 401) {
-		await refreshSession();
+		await refreshSession('authentication-required');
 	}
 	if (!response.ok) {
 		throw await requestError(response);

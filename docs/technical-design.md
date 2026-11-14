@@ -70,7 +70,7 @@ The domain package is independent of React, Fastify, Prisma, and the selected re
 - TanStack Query caches server data. Include all filter parameters in list/summary query keys. Invalidate affected data after confirmed changes.
 - Never optimistically claim timer start/stop or invoice marking succeeded. Show pending state until confirmation; allow safe retries after connection failures.
 - Display elapsed timer seconds locally from the server start instant and server-time offset. Refresh on focus/reconnection and poll active timer state every 10 seconds while visible. The display interval performs no database writes.
-- An installable manifest and application icons support browser installation. Any service worker caches static assets only; authenticated API responses are not an offline data source. Show explicit connection failure states.
+- A standalone manifest and launcher icons support browser installation. Serve the manifest, fixed-name icons and app shell with revalidation, and hashed static assets with immutable caching. Authenticated API responses use `no-store`. The installed app requires a server connection and uses no service worker.
 - Reuse the same responsive interface in future webview clients where appropriate. Authentication, secure credential storage, file downloads, deep links, and platform integrations will need client-specific design.
 
 ### Contract approach

@@ -46,7 +46,7 @@ export function Login() {
 	return (
 		<section className="account-view" aria-labelledby="sign-in-heading">
 			<h1 id="sign-in-heading">Sign in</h1>
-			<p className="intro">Use the account set up for you by your Timekeeper operator.</p>
+			<p className="intro">Use the account set up for you by your Timekeeper operator. Timekeeper requires a connection to the server.</p>
 			<form className="panel account-form" onSubmit={signIn} aria-busy={pending}>
 				{error ? <p className="feedback error" role="alert">{error}</p> : null}
 				<div className="field">

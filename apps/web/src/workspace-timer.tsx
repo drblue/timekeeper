@@ -1,14 +1,15 @@
-import { onlineManager, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import {
 	idempotencyKeyHeader, longRunningTimerSeconds, maxEntryDescriptionLength, parseStopTimerResponse,
 	parseSwitchTimerResponse, parseTimerStateResponse, timerPath, timerStartPath, timerStopPath, timerSwitchPath,
 } from '@timekeeper/contracts';
 import type { EntryResponse, RunningTimerResponse, StartTimerBody, StartTimerRequest, StopTimerBody, TimerStateResponse } from '@timekeeper/contracts';
-import { createContext, use, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import { createContext, use, useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode, SubmitEvent } from 'react';
 import { ApiRequestError, readApi, writeApi } from './api';
 import { authError, useSession } from './auth';
+import { useOnline } from './connection';
 import { EntryBillingFields, useEntryBilling } from './entry-billing-fields';
 import { formatDurationInput } from './entry-time';
 import { entriesKey } from './entry-query';
@@ -33,8 +34,6 @@ export function useTimerActions() {
 	return actions;
 }
 const defaultStart: StartTimerBody = { projectId: null, directClientId: null, rateOverrideOrePerHour: null };
-const subscribeOnline = (listener: () => void) => onlineManager.subscribe(listener);
-const isOnline = () => onlineManager.isOnline();
 
 type ClockSnapshot = { state: TimerStateResponse; measuredAt: number; serverMs: number };
 
@@ -132,7 +131,7 @@ export function WorkspaceTimer({ account, sessionUnavailable, children }: {
 }) {
 	const { session, refresh } = useSession();
 	const queryClient = useQueryClient();
-	const online = useSyncExternalStore(subscribeOnline, isOnline);
+	const online = useOnline();
 	const [details, setDetails] = useState(false);
 	const [switchTarget, setSwitchTarget] = useState<StopTimerBody | null>(null);
 	const switchTrigger = useRef<HTMLButtonElement>(null);

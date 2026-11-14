@@ -6,6 +6,8 @@ import {
 } from '@timekeeper/contracts';
 import type { AuthSessionResponse } from '@timekeeper/contracts';
 import { createContext, use } from 'react';
+import { ApiRequestError, requestError } from './api';
+import type { RefreshSession } from './api';
 
 const sessionKey = [authSessionPath];
 
@@ -15,7 +17,12 @@ function removePrivateQueries(queryClient: ReturnType<typeof useQueryClient>) {
 
 async function readSession(signal?: AbortSignal) {
 	const response = await fetch(authSessionPath, { signal, cache: 'no-store' });
+	if (response.status === 401) throw await requestError(response);
 	return readSessionResponse(response);
+}
+
+export function isSessionRejected(error: unknown) {
+	return error instanceof ApiRequestError && error.response.status === 401;
 }
 
 export async function readSessionResponse(response: Response) {
@@ -32,11 +39,17 @@ export function useSessionQuery() {
 	return useQuery({
 		queryKey: sessionKey,
 		queryFn: async ({ signal }) => {
-			const session = await readSession(signal);
-			if (!session.account) {
-				removePrivateQueries(queryClient);
+			try {
+				const session = await readSession(signal);
+				if (!session.account) removePrivateQueries(queryClient);
+				return session;
+			} catch (error) {
+				if (isSessionRejected(error)) {
+					removePrivateQueries(queryClient);
+					queryClient.setQueryData<AuthSessionResponse>(sessionKey, (previous) => previous && { ...previous, account: null });
+				}
+				throw error;
 			}
-			return session;
 		},
 		retry: false,
 		networkMode: 'always',
@@ -63,7 +76,7 @@ export function useReplaceSession() {
 
 type SessionContextValue = {
 	session: AuthSessionResponse;
-	refresh: () => Promise<unknown>;
+	refresh: RefreshSession;
 };
 
 export const SessionContext = createContext<SessionContextValue | null>(null);
@@ -94,7 +107,7 @@ export async function authError(response: Response, refresh: SessionContextValue
 
 	switch (code) {
 		case 'AUTH_REQUIRED':
-			await refresh();
+			await refresh('authentication-required');
 			return 'Your session ended. Sign in again.';
 		case 'CSRF_REJECTED':
 			await refresh();

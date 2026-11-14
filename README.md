@@ -20,6 +20,13 @@ Open [Timekeeper](http://127.0.0.1:3000) and sign in with the provisioned email 
 
 For development, run `npm run dev:server` and `npm run dev:web` in separate terminals. Open [the Vite development server](http://127.0.0.1:5173). Vite forwards API requests to the local Fastify process. If you change `PORT`, use the same value in both terminals. Restart the development server after editing the shared contracts to rebuild that workspace.
 
+## Install in a browser
+
+- In Chrome, open Timekeeper and choose the browser's install control in the address bar or menu when available. On Android, use the browser menu's installation or home-screen action.
+- On iPhone or iPad in Safari, use **Share → Add to Home Screen**. On iOS or iPadOS 26, keep **Open as Web App** enabled for a standalone window.
+
+Open the installed app from your home screen or app launcher. Timekeeper needs a connection to its server for sign-in, tracking and saving. Use an HTTPS Timekeeper address on a separate phone. The local loopback address above is for a browser on the same computer and can be used to test installation there. [Chrome installation criteria](https://web.dev/articles/install-criteria), [Safari Home Screen web apps](https://webkit.org/blog/17333/webkit-features-in-safari-26-0/#every-site-can-be-a-web-app-on-ios-and-ipados)
+
 ## API
 
 - `GET /api/v1/health` returns `200` with `{"status":"ok"}` when the API process can serve requests. It accepts no query parameters and performs no database query.

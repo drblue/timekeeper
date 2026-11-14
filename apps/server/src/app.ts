@@ -212,6 +212,21 @@ export async function createApp({ webRoot, logger = false, auth, catalog, entrie
 				immutable: true,
 			});
 
+			const installationAssets = {
+				'manifest.webmanifest': 'application/manifest+json',
+				'icons/timekeeper-192.png': 'image/png',
+				'icons/timekeeper-512.png': 'image/png',
+				'icons/timekeeper-maskable-512.png': 'image/png',
+				'icons/apple-touch-icon.png': 'image/png',
+			};
+			for (const [file, contentType] of Object.entries(installationAssets)) {
+				web.get('/' + file, { schema: { hide: true } }, (_request, reply) => reply
+					.type(contentType)
+					.header('Cache-Control', 'no-cache')
+					.header('X-Content-Type-Options', 'nosniff')
+					.sendFile(file, webRoot, { cacheControl: false }));
+			}
+
 			for (const path of ['/', '/login', '/password', '/clients', '/projects', '/entries', '/entries/trash', '/entries/:entryId', '/reports/preview', '/settings/report', '/imports/clockify', '/imports/clockify/history', '/exports']) {
 				web.get(path, { schema: { hide: true } }, (_request, reply) => {
 					return reply.header('Cache-Control', 'no-cache').sendFile('index.html', webRoot, { cacheControl: false });

@@ -21,6 +21,14 @@ body {
 	margin-inline: auto;
 }
 
+.connection-notice {
+	margin: 0 0 1rem;
+}
+
+.install-help {
+	margin-block: 1rem;
+}
+
 .site-header {
 	border-bottom: 1px solid var(--border);
 	background: #fff;

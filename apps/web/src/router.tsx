@@ -2,8 +2,10 @@ import { createRootRoute, createRoute, createRouter, lazyRouteComponent, Link, N
 import { authLogoutPath } from '@timekeeper/contracts';
 import { useState } from 'react';
 import { Clients, Projects } from './catalog-page';
-import { authError, postAuth, SessionContext, useReplaceSession, useSession, useSessionQuery } from './auth';
+import { authError, isSessionRejected, postAuth, SessionContext, useReplaceSession, useSession, useSessionQuery } from './auth';
+import type { RefreshSession } from './api';
 import { Home } from './home';
+import { useOnline } from './connection';
 import { Login } from './login';
 import { Password } from './password';
 import { writePendingClockifyImport, writePendingClockifyUndo } from './clockify-import-pending';
@@ -56,8 +58,12 @@ function SignOut() {
 
 function Layout() {
 	const session = useSessionQuery();
-	const signedIn = !session.isError && !!session.data?.account;
-	const content = session.isError ? (
+	const replaceSession = useReplaceSession();
+	const online = useOnline();
+	const rejected = isSessionRejected(session.error);
+	const signedIn = !rejected && !!session.data?.account;
+	const refresh: RefreshSession = (reason) => reason === 'authentication-required' ? replaceSession(undefined) : session.refetch();
+	const content = session.isError && !signedIn ? (
 		<section className="account-view">
 			<h1>Connection unavailable</h1>
 			<p className="intro" role="alert">Could not check your session. Check your connection and try again.</p>
@@ -66,7 +72,7 @@ function Layout() {
 	) : session.data ? <Outlet /> : <p role="status">Checking your session…</p>;
 
 	return (
-		<SessionContext value={session.data ? { session: session.data, refresh: session.refetch } : null}>
+		<SessionContext value={session.data && !rejected ? { session: session.data, refresh } : null}>
 			<header className="site-header">
 				<div className="shell header-content">
 					<div className="brand">
@@ -90,7 +96,12 @@ function Layout() {
 				</div>
 			</header>
 			<main className="shell main-content">
-				{session.data?.account ? (
+				{!online || (session.isError && signedIn) ? (
+					<p className="feedback warning connection-notice" role="status">{!online
+						? 'You’re offline. Reconnect to load or save work.'
+						: 'Could not check your session. Check your connection and try again.'}</p>
+				) : null}
+				{session.data?.account && !rejected ? (
 					<WorkspaceTimer key={session.data.account.email} account={session.data.account.email} sessionUnavailable={session.isError}>
 						{content}
 					</WorkspaceTimer>
