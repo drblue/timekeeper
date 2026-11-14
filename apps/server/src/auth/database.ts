@@ -5,7 +5,8 @@ import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import { PrismaClient } from '../generated/prisma/client.ts';
 
 const migrationDirectory = new URL('../../../../prisma/app/migrations/', import.meta.url);
-type Migration = { migration_name: string; checksum: string };
+export type MigrationChecksum = { migration_name: string; checksum: string };
+export type MigrationHistory = MigrationChecksum & { finished_at: unknown; rolled_back_at: unknown };
 
 async function migrationChecksums() {
 	const directory = await readdir(migrationDirectory, { withFileTypes: true });
@@ -17,16 +18,21 @@ async function migrationChecksums() {
 
 let expectedMigrations: ReturnType<typeof migrationChecksums> | undefined;
 
-export async function requireCurrentDatabaseSchema(database: PrismaClient) {
+export async function verifyMigrationHistory(history: MigrationHistory[]) {
 	const expected = await (expectedMigrations ??= migrationChecksums());
-	const history = await database.$queryRaw<(Migration & { finished_at: unknown; rolled_back_at: unknown })[]>`
-		SELECT migration_name, checksum, finished_at, rolled_back_at FROM "_prisma_migrations"`;
 	const current = history.filter(({ rolled_back_at }) => rolled_back_at === null);
 	const exact = new Map(current.map(({ migration_name, checksum }) => [migration_name, checksum]));
 	if (!expected.length || current.length !== expected.length || current.some(({ finished_at }) => finished_at === null)
 		|| expected.some(({ migration_name, checksum }) => exact.get(migration_name) !== checksum)) {
 		throw new Error('Database migrations do not match this Timekeeper release.');
 	}
+	return current.map(({ migration_name, checksum }) => ({ migration_name, checksum }))
+		.sort((left, right) => left.migration_name.localeCompare(right.migration_name));
+}
+
+export async function requireCurrentDatabaseSchema(database: PrismaClient) {
+	await verifyMigrationHistory(await database.$queryRaw<MigrationHistory[]>`
+		SELECT migration_name, checksum, finished_at, rolled_back_at FROM "_prisma_migrations"`);
 }
 
 export function createReadinessProbe(database: PrismaClient) {

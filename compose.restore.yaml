@@ -1,0 +1,27 @@
+services:
+  restore:
+    image: ${TIMEKEEPER_BACKUP_IMAGE:?Set TIMEKEEPER_BACKUP_IMAGE to the backup image}
+    user: "1000:1000"
+    read_only: true
+    network_mode: none
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    entrypoint: ["node", "apps/server/dist/backup/operator.js", "restore"]
+    volumes:
+      - type: bind
+        source: ${TIMEKEEPER_BACKUP_DIR:?Set TIMEKEEPER_BACKUP_DIR to the directory holding the encrypted archive}
+        target: /backup
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TIMEKEEPER_RESTORE_DIR:?Set TIMEKEEPER_RESTORE_DIR to the new empty private data directory}
+        target: /var/lib/timekeeper
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TIMEKEEPER_BACKUP_IDENTITY:?Set TIMEKEEPER_BACKUP_IDENTITY to the private recovery identity file}
+        target: /keys/identity
+        read_only: true
+        bind:
+          create_host_path: false

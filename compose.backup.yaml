@@ -1,0 +1,32 @@
+services:
+  backup:
+    image: ${TIMEKEEPER_BACKUP_IMAGE:?Set TIMEKEEPER_BACKUP_IMAGE to the backup image}
+    user: "1000:1000"
+    read_only: true
+    network_mode: none
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      TIMEKEEPER_BACKUP_DESTINATION_ID: ${TIMEKEEPER_BACKUP_DESTINATION_ID:?Set the expected backup destination marker}
+    volumes:
+      - type: bind
+        source: ${TIMEKEEPER_DATA_DIR:?Set TIMEKEEPER_DATA_DIR to the private local data directory}
+        target: /var/lib/timekeeper
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TIMEKEEPER_BACKUP_DIR:?Set TIMEKEEPER_BACKUP_DIR to the separate backup destination}
+        target: /backup
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TIMEKEEPER_BACKUP_SCRATCH_DIR:?Set TIMEKEEPER_BACKUP_SCRATCH_DIR to a private local scratch directory}
+        target: /scratch
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TIMEKEEPER_BACKUP_RECIPIENTS:?Set TIMEKEEPER_BACKUP_RECIPIENTS to the public age recipients file}
+        target: /keys/recipients
+        read_only: true
+        bind:
+          create_host_path: false

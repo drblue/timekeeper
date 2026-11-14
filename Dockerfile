@@ -36,7 +36,7 @@ CMD ["sh", "-c", "umask 077 && exec ./node_modules/.bin/prisma migrate deploy --
 FROM build AS production-dependencies
 RUN npm prune --omit=dev --no-audit --no-fund
 
-FROM base AS runtime
+FROM base AS application
 COPY package.json ./
 COPY --from=production-dependencies /opt/timekeeper/node_modules node_modules
 COPY --from=production-dependencies /opt/timekeeper/apps/server/package.json apps/server/package.json
@@ -52,3 +52,14 @@ USER 1000:1000
 EXPOSE 3000
 ENTRYPOINT ["sh", "-c", "umask 077 && exec \"$@\"", "timekeeper"]
 CMD ["node", "apps/server/dist/index.js"]
+
+
+FROM application AS backup
+USER root
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends age=1.1.1-1+b3 \
+	&& rm -rf /var/lib/apt/lists/*
+USER 1000:1000
+CMD ["node", "apps/server/dist/backup/operator.js", "backup"]
+
+FROM application AS runtime
