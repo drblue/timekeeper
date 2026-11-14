@@ -17,7 +17,7 @@ import type { InjectOptions, LightMyRequestResponse } from 'fastify';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { readAuthConfig } from '../src/auth/config.ts';
-import { openDatabase } from '../src/auth/database.ts';
+import { createReadinessProbe, openDatabase } from '../src/auth/database.ts';
 import * as passwords from '../src/auth/passwords.ts';
 import { createAuthStore, provisionAccount, resetAccount, sessionMaxAge } from '../src/auth/store.ts';
 
@@ -111,6 +111,27 @@ describe('Account access', () => {
 	async function access(cookies?: Record<string, string>) {
 		return app.inject({ method: 'GET', url: accountPath, cookies });
 	}
+
+	it('rejects an incompatible migration ledger even when application tables remain readable', async () => {
+		const probe = createReadinessProbe(database);
+		await expect(probe()).resolves.toBeUndefined();
+		await database.$executeRaw`UPDATE "_prisma_migrations" SET "checksum" = 'tampered' WHERE "migration_name" = '0016_clockify_undo'`;
+		await expect(database.account.findFirst({ select: { id: true } })).resolves.toBeDefined();
+		await expect(probe()).rejects.toThrow('Database migrations do not match this Timekeeper release');
+		await expect(openDatabase(databaseUrl)).rejects.toThrow('Cannot open the application database');
+	});
+
+	it('rejects unfinished and unexpected migration records while ignoring rolled-back attempts', async () => {
+		const probe = createReadinessProbe(database);
+		await database.$executeRaw`INSERT INTO "_prisma_migrations"
+			("id", "checksum", "migration_name", "started_at", "rolled_back_at", "applied_steps_count")
+			VALUES ('probe-migration', 'ignored', '0017_example', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)`;
+		await expect(probe()).resolves.toBeUndefined();
+		await database.$executeRaw`UPDATE "_prisma_migrations" SET "rolled_back_at" = NULL WHERE "id" = 'probe-migration'`;
+		await expect(probe()).rejects.toThrow('Database migrations do not match this Timekeeper release');
+		await database.$executeRaw`UPDATE "_prisma_migrations" SET "finished_at" = CURRENT_TIMESTAMP WHERE "id" = 'probe-migration'`;
+		await expect(probe()).rejects.toThrow('Database migrations do not match this Timekeeper release');
+	});
 
 	it('keeps private data behind the session, persists only a token digest, and revokes it on logout', async () => {
 		expect((await access()).json()).toMatchObject({ code: 'AUTH_REQUIRED' });

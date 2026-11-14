@@ -5,7 +5,7 @@ import fastifyStatic from '@fastify/static';
 import swagger from '@fastify/swagger';
 import { TypeGuard } from '@sinclair/typebox';
 import { TypeCompiler } from '@sinclair/typebox/compiler';
-import { ApiErrorResponse, healthPath, HealthQuery, HealthResponse } from '@timekeeper/contracts';
+import { ApiErrorResponse, healthPath, HealthQuery, HealthResponse, readinessPath, ReadinessResponse } from '@timekeeper/contracts';
 import Fastify from 'fastify';
 import type { FastifyError } from 'fastify';
 import { ApiRequestError } from './api-error.ts';
@@ -39,9 +39,10 @@ interface AppOptions {
 	reportJobs?: Awaited<ReturnType<typeof createReportJobs>>;
 	reportSettings?: ReturnType<typeof createReportSettings>;
 	timer?: TimerStore;
+	readiness?: () => Promise<void>;
 }
 
-export async function createApp({ webRoot, logger = false, auth, catalog, entries, timer, reportPreview, reportSettings, reportJobs, clockifyImport, exportDatabase }: AppOptions = {}) {
+export async function createApp({ webRoot, logger = false, auth, catalog, entries, timer, reportPreview, reportSettings, reportJobs, clockifyImport, exportDatabase, readiness }: AppOptions = {}) {
 	if (webRoot) {
 		await access(resolve(webRoot, 'index.html'));
 	}
@@ -190,6 +191,23 @@ export async function createApp({ webRoot, logger = false, auth, catalog, entrie
 	}, async (_request, reply) => {
 		reply.header('Cache-Control', 'no-store');
 		return { status: 'ok' };
+	});
+
+	app.get(readinessPath, {
+		config: { publicAccess: true },
+		schema: {
+			operationId: 'getReadiness', querystring: HealthQuery,
+			response: { 200: ReadinessResponse, 400: ApiErrorResponse, 503: ReadinessResponse },
+		},
+	}, async (_request, reply) => {
+		reply.header('Cache-Control', 'no-store');
+		try {
+			if (!readiness) return reply.code(503).send({ status: 'not-ready' });
+			await readiness();
+			return { status: 'ready' };
+		} catch {
+			return reply.code(503).send({ status: 'not-ready' });
+		}
 	});
 
 	app.get('/api/v1/openapi.json', { config: { publicAccess: true }, schema: { hide: true } }, async (_request, reply) => {

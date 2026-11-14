@@ -16,6 +16,7 @@ export * from './clockify-import.js';
 export * from './exports.js';
 
 export const healthPath = '/api/v1/health';
+export const readinessPath = '/api/v1/ready';
 export const authSessionPath = '/api/v1/auth/session';
 export const authLoginPath = '/api/v1/auth/login';
 export const authLogoutPath = '/api/v1/auth/logout';
@@ -29,6 +30,10 @@ export const HealthQuery = Type.Object({}, { additionalProperties: false });
 
 export const HealthResponse = Type.Object({
 	status: Type.Literal('ok'),
+}, { additionalProperties: false });
+
+export const ReadinessResponse = Type.Object({
+	status: Type.Union([Type.Literal('ready'), Type.Literal('not-ready')]),
 }, { additionalProperties: false });
 
 export const ApiErrorResponse = Type.Object({
@@ -61,6 +66,7 @@ export const ChangePasswordBody = Type.Object({
 }, { additionalProperties: false });
 
 export type HealthResponse = Static<typeof HealthResponse>;
+export type ReadinessResponse = Static<typeof ReadinessResponse>;
 export type ApiErrorResponse = Static<typeof ApiErrorResponse>;
 export type AccountResponse = Static<typeof AccountResponse>;
 export type AuthSessionResponse = Static<typeof AuthSessionResponse>;

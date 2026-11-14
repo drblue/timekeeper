@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ApiErrorResponse, healthPath, HealthResponse } from '@timekeeper/contracts';
+import { ApiErrorResponse, healthPath, HealthResponse, readinessPath } from '@timekeeper/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.ts';
 
@@ -23,6 +23,30 @@ describe('Timekeeper API', () => {
 		expect(response.headers['content-type']).toMatch(/^application\/json/);
 		expect(response.headers['cache-control']).toBe('no-store');
 		expect(response.json()).toEqual({ status: 'ok' });
+	});
+
+	it('keeps readiness separate from liveness and discloses no probe error details', async () => {
+		let healthy = true;
+		const tested = await createApp({ readiness: async () => {
+			if (!healthy) throw new Error('private database path');
+		} });
+		try {
+			const ready = await tested.inject({ url: readinessPath });
+			expect(ready.statusCode).toBe(200);
+			expect(ready.json()).toEqual({ status: 'ready' });
+			expect(ready.headers['cache-control']).toBe('no-store');
+			expect((await tested.inject({ url: readinessPath + '?unexpected=true' })).statusCode).toBe(400);
+
+			healthy = false;
+			const unavailable = await tested.inject({ url: readinessPath });
+			expect(unavailable.statusCode).toBe(503);
+			expect(unavailable.json()).toEqual({ status: 'not-ready' });
+			expect(unavailable.headers['cache-control']).toBe('no-store');
+			expect(unavailable.body).not.toContain('private database path');
+			expect((await tested.inject({ url: healthPath })).statusCode).toBe(200);
+		} finally {
+			await tested.close();
+		}
 	});
 
 	it('rejects unsupported query parameters with a structured error', async () => {

@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.ts';
 import { readAuthConfig } from './auth/config.ts';
 import { databaseUrl } from './auth/database-location.ts';
-import { openDatabase } from './auth/database.ts';
+import { createReadinessProbe, openDatabase } from './auth/database.ts';
 import { createAuthStore } from './auth/store.ts';
 import { createCatalogStore } from './catalog/store.ts';
 import { createClockifyImportStore } from './imports/clockify-store.ts';
@@ -39,6 +39,7 @@ try {
 	app = await createApp({
 		webRoot,
 		logger: true,
+		readiness: createReadinessProbe(database),
 		auth: { config, store },
 		catalog: createCatalogStore(database),
 		clockifyImport: createClockifyImportStore(database),

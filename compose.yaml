@@ -1,0 +1,41 @@
+x-runtime: &runtime
+  user: "1000:1000"
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=272m,mode=1777
+  volumes:
+    - type: bind
+      source: ${TIMEKEEPER_DATA_DIR:?Set TIMEKEEPER_DATA_DIR to the private local data directory}
+      target: /var/lib/timekeeper
+      bind:
+        create_host_path: false
+
+services:
+  app:
+    <<: *runtime
+    image: ${TIMEKEEPER_IMAGE:?Set TIMEKEEPER_IMAGE to the runtime image}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      TIMEKEEPER_ORIGIN: ${TIMEKEEPER_ORIGIN:?Set TIMEKEEPER_ORIGIN to the HTTPS origin}
+      TIMEKEEPER_TRUSTED_PROXY_IPS: ${TIMEKEEPER_TRUSTED_PROXY_IPS:-}
+    ports:
+      - "127.0.0.1:${TIMEKEEPER_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "--input-type=module", "-e", "const r = await fetch('http://127.0.0.1:3000/api/v1/ready'); if (!r.ok) process.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+      start_interval: 2s
+
+  migrate:
+    <<: *runtime
+    image: ${TIMEKEEPER_MIGRATION_IMAGE:?Set TIMEKEEPER_MIGRATION_IMAGE to the migration image}
+    profiles: [operations]
+    network_mode: none

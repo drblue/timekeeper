@@ -1,6 +1,41 @@
+import { createHash } from 'node:crypto';
+import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import { PrismaClient } from '../generated/prisma/client.ts';
+
+const migrationDirectory = new URL('../../../../prisma/app/migrations/', import.meta.url);
+type Migration = { migration_name: string; checksum: string };
+
+async function migrationChecksums() {
+	const directory = await readdir(migrationDirectory, { withFileTypes: true });
+	return Promise.all(directory.filter((entry) => entry.isDirectory()).map(async ({ name }) => ({
+		migration_name: name,
+		checksum: createHash('sha256').update(await readFile(new URL(`${name}/migration.sql`, migrationDirectory))).digest('hex'),
+	})));
+}
+
+let expectedMigrations: ReturnType<typeof migrationChecksums> | undefined;
+
+export async function requireCurrentDatabaseSchema(database: PrismaClient) {
+	const expected = await (expectedMigrations ??= migrationChecksums());
+	const history = await database.$queryRaw<(Migration & { finished_at: unknown; rolled_back_at: unknown })[]>`
+		SELECT migration_name, checksum, finished_at, rolled_back_at FROM "_prisma_migrations"`;
+	const current = history.filter(({ rolled_back_at }) => rolled_back_at === null);
+	const exact = new Map(current.map(({ migration_name, checksum }) => [migration_name, checksum]));
+	if (!expected.length || current.length !== expected.length || current.some(({ finished_at }) => finished_at === null)
+		|| expected.some(({ migration_name, checksum }) => exact.get(migration_name) !== checksum)) {
+		throw new Error('Database migrations do not match this Timekeeper release.');
+	}
+}
+
+export function createReadinessProbe(database: PrismaClient) {
+	return async () => {
+		await requireCurrentDatabaseSchema(database);
+		// Read a real application table as well as the migration ledger.
+		await database.account.findFirst({ select: { id: true } });
+	};
+}
 
 export async function openDatabase(url: string): Promise<PrismaClient> {
 	const database = new PrismaClient({
@@ -18,6 +53,7 @@ export async function openDatabase(url: string): Promise<PrismaClient> {
 		if (mode?.journal_mode !== 'wal' || Number(foreignKeys?.foreign_keys) !== 1) {
 			throw new Error('Could not enable WAL or verify foreign keys.');
 		}
+		await requireCurrentDatabaseSchema(database);
 		await database.account.findFirst({ select: { id: true } });
 		await database.session.findFirst({ select: { tokenHash: true } });
 		await database.client.findFirst({ select: { id: true } });

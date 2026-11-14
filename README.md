@@ -20,6 +20,8 @@ Open [Timekeeper](http://127.0.0.1:3000) and sign in with the provisioned email 
 
 For development, run `npm run dev:server` and `npm run dev:web` in separate terminals. Open [the Vite development server](http://127.0.0.1:5173). Vite forwards API requests to the local Fastify process. If you change `PORT`, use the same value in both terminals. Restart the development server after editing the shared contracts to rebuild that workspace.
 
+For a Raspberry Pi 4 or x86-64 VPS, follow the [Docker Compose deployment guide](docs/deployment.md) for HTTPS, persistent storage, migrations, upgrades, and rollback.
+
 ## Install in a browser
 
 - In Chrome, open Timekeeper and choose the browser's install control in the address bar or menu when available. On Android, use the browser menu's installation or home-screen action.
@@ -30,6 +32,7 @@ Open the installed app from your home screen or app launcher. Timekeeper needs a
 ## API
 
 - `GET /api/v1/health` returns `200` with `{"status":"ok"}` when the API process can serve requests. It accepts no query parameters and performs no database query.
+- `GET /api/v1/ready` checks database and migration readiness. It returns `200` with `{"status":"ready"}` or `503` with `{"status":"not-ready"}`.
 - `GET /api/v1/openapi.json` serves the OpenAPI description generated from the Fastify route schemas.
 - `GET /api/v1/auth/session` reports the current browser session and issues a CSRF token for account actions. Private API routes such as `GET /api/v1/account` require a valid session.
 
