@@ -10,5 +10,6 @@ apps/server/src/generated/
 .env.local
 *.sqlite
 *.sqlite-*
+*.report-artifacts/
 
 /output/pdf/

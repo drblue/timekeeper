@@ -1,0 +1,11 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"module": "NodeNext",
+		"lib": ["ES2024"],
+		"rootDir": "src",
+		"outDir": "dist",
+		"declaration": true
+	},
+	"include": ["src/**/*.ts"]
+}

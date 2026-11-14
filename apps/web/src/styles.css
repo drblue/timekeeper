@@ -1314,3 +1314,15 @@ button:disabled {
 		grid-column: 1 / -1;
 	}
 }
+
+.report-pdf-job {
+	display: grid;
+	gap: 0.55rem;
+	padding-block-start: 0.7rem;
+	border-block-start: 1px solid var(--border);
+	overflow-wrap: anywhere;
+}
+
+.report-pdf p {
+	margin: 0;
+}

@@ -9,6 +9,8 @@ export * from './stockholm-time.js';
 export * from './timer.js';
 export * from './work-list.js';
 export * from './report.js';
+export * from './report-jobs.js';
+export * from './report-labels.js';
 export * from './report-settings.js';
 
 export const healthPath = '/api/v1/health';

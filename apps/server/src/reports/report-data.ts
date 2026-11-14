@@ -3,9 +3,10 @@ import type { ReportPreviewQuery, ReportPreviewResponse } from '@timekeeper/cont
 import { ApiRequestError } from '../api-error.ts';
 import { readCompletedWork, resolveWorkScope, totalWork, workDateRange } from '../entries/work-scope.ts';
 import { workAssociation } from '../entries/work-settings.ts';
-import type { PrismaClient } from '../generated/prisma/client.ts';
+import type { Prisma, PrismaClient } from '../generated/prisma/client.ts';
 import { validLocalDate } from '../local-date.ts';
 import { captureReportBranding } from './settings.ts';
+import { maxReportAllocations, maxReportSnapshotBytes } from './job-limits.ts';
 
 type ProjectShare = ReportPreviewResponse['projectShares'][number];
 type ReportLine = Omit<ReportPreviewResponse['summaries'][number], 'hourlyRateOre' | 'amountOre'> & {
@@ -32,8 +33,14 @@ function compareText(left: string, right: string) {
 	return left < right ? -1 : left > right ? 1 : 0;
 }
 
-export async function buildReportData(
-	database: PrismaClient, accountId: string, query: ReportPreviewQuery, now: Date, includeDetails = query.includeDetails === 'true',
+export function buildReportData(
+	database: PrismaClient, accountId: string, query: ReportPreviewQuery, now: Date,
+) {
+	return database.$transaction((transaction) => captureReportData(transaction, accountId, query, now));
+}
+
+export async function captureReportData(
+	transaction: Prisma.TransactionClient, accountId: string, query: ReportPreviewQuery, now: Date, limitPdfInput = false,
 ): Promise<ReportData> {
 	const range = workDateRange(query, now.toISOString());
 	if (!validLocalDate(range.from) || !validLocalDate(range.to)) {
@@ -43,11 +50,21 @@ export async function buildReportData(
 	if (dayCount > maxReportDays) {
 		throw new ApiRequestError(422, 'REPORT_RANGE_TOO_LONG', `Choose a report period of at most ${maxReportDays} days.`);
 	}
-	const { scope, rows, branding, logoPngBase64 } = await database.$transaction(async (transaction) => {
-		const scope = await resolveWorkScope(transaction, accountId, range, query);
-		const rows = await readCompletedWork(transaction, scope, undefined, true);
-		return { scope, rows, ...await captureReportBranding(transaction, accountId) };
-	});
+	const scope = await resolveWorkScope(transaction, accountId, range, query);
+	const { branding, logoPngBase64 } = await captureReportBranding(transaction, accountId);
+	const includeDetails = query.includeDetails === 'true';
+	let inputBytes = 0;
+	const rows = await readCompletedWork(transaction, scope, undefined, true, limitPdfInput ? {
+		maxRows: maxReportAllocations,
+		acceptRow({ entry }) {
+			// Bound loaded text before aggregating. Exact serialized size is checked at admission.
+			const { clientName, projectName } = workAssociation(entry);
+			inputBytes += Buffer.byteLength(entry.description) + Buffer.byteLength(clientName ?? '') + Buffer.byteLength(projectName ?? '');
+			if (inputBytes > maxReportSnapshotBytes) {
+				throw new ApiRequestError(422, 'REPORT_INPUT_TOO_LARGE', 'Choose a smaller report scope.');
+			}
+		},
+	} : undefined);
 
 	const showMoney = query.showMoney === 'true';
 	const totals = totalWork(rows);

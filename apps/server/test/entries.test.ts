@@ -1068,7 +1068,7 @@ describe('Manual entries', () => {
 		});
 		expect(list.incomplete).toHaveLength(1);
 		expect(preview.totalAmountOre).toBe('0');
-		const immutable = await buildReportData(database, accountId, filters, new Date(now), true);
+		const immutable = await buildReportData(database, accountId, { ...filters, includeDetails: 'true' }, new Date(now));
 		expect(immutable.details).toMatchObject([{ entryId: source.id, date: '2026-11-17', seconds: 1_800, amountOre: 0n }]);
 		expect(Object.isFrozen(immutable) && Object.isFrozen(immutable.details?.[0]) && Object.isFrozen(immutable.scope)).toBe(true);
 	});

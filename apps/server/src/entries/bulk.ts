@@ -13,6 +13,14 @@ import type { InvoiceMetadata } from './invoicing.ts';
 import { planEntrySplit, splitPreview, writeEntrySplit } from './split-entry.ts';
 import { readCompletedWork, readIncompleteWork, resolveWorkScope, totalWork, workDateRange } from './work-scope.ts';
 
+const selectionBatchSize = 256;
+
+function* selectionBatches<T>(ids: T[]) {
+	for (let start = 0; start < ids.length; start += selectionBatchSize) {
+		yield ids.slice(start, start + selectionBatchSize);
+	}
+}
+
 const previewLifetimeMs = 15 * 60 * 1_000;
 type BulkAction = BulkEntryPreviewBody['action'];
 type Selection = BulkEntryPreviewBody['selection'];
@@ -67,13 +75,20 @@ async function resolveSelection(
 ) {
 	const scope = await resolveWorkScope(transaction, accountId, range, filters);
 	const explicitIds = selection.mode === 'explicit' ? selection.entryIds : undefined;
-	const completed = await readCompletedWork(transaction, scope, explicitIds);
-	const incomplete = await readIncompleteWork(transaction, scope, { allocations: false }, explicitIds);
-	const matchingIds = new Set([...completed.map(({ entryId }) => entryId), ...incomplete.map(({ id }) => id)]);
-	const selectedIds = explicitIds ?? [...matchingIds];
-	const entries = selectedIds.length ? await transaction.entry.findMany({
-		where: { ...activeEntryWhere(accountId), id: { in: selectedIds } }, include: entryRelations, orderBy: { id: 'asc' },
-	}) : [];
+	const matchingIds = new Set<string>();
+	for (const ids of explicitIds ? selectionBatches(explicitIds) : [undefined]) {
+		const completed = await readCompletedWork(transaction, scope, ids);
+		const incomplete = await readIncompleteWork(transaction, scope, { allocations: false }, ids);
+		for (const { entryId } of completed) matchingIds.add(entryId);
+		for (const { id } of incomplete) matchingIds.add(id);
+	}
+	const selectedIds = (explicitIds ?? [...matchingIds]).sort();
+	const entries: EntryWithRelations[] = [];
+	for (const ids of selectionBatches(selectedIds)) {
+		entries.push(...await transaction.entry.findMany({
+			where: { ...activeEntryWhere(accountId), id: { in: ids } }, include: entryRelations, orderBy: { id: 'asc' },
+		}));
+	}
 	if (entries.length !== selectedIds.length) {
 		throw new ApiRequestError(422, 'INVALID_BULK_SELECTION', 'Some selected entries are unavailable. Refresh the work list.');
 	}

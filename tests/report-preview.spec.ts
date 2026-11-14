@@ -1,8 +1,10 @@
+import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import {
 	authSessionPath, clientsPath, csrfHeader, entriesPath, parseAuthSessionResponse, parseClientResponse,
 	parseEntryResponse, parseProjectResponse, parseReportSettingsResponse, projectsPath, reportLogoPath, reportSettingsPath,
+	parseReportJobResponse, reportJobsPath, reportPdfPath, stockholmDateRange,
 } from '@timekeeper/contracts';
 
 async function signIn(page: Page) {
@@ -212,4 +214,82 @@ test('persists report branding and previews a Swedish appendix independently of 
 	await expect(page.locator('.report-identity img')).toHaveCount(0);
 	await expect(page.getByText('Ångström & Söner')).toBeVisible();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+});
+
+test('downloads the generated PDF for its original scope after report filters change and reload', async ({ page, request }) => {
+	const post = await signIn(page);
+	const range = stockholmDateRange('previous-month', new Date().toISOString());
+	const previousDate = new Date(Date.parse(range.from + 'T00:00:00Z') - 86_400_000).toISOString().slice(0, 10);
+	const entry = parseEntryResponse(await post(entriesPath, {
+		...standard, kind: 'timed', description: 'PDF November review',
+		startLocal: previousDate + 'T23:45:00', endLocal: range.from + 'T00:15:00',
+	}));
+	await page.goto('/reports/preview?preset=previous-month&description=PDF+November&language=sv&showMoney=true&includeDetails=true');
+	const pdf = page.getByRole('region', { name: 'PDF report' });
+	const generate = pdf.getByRole('button', { name: 'Generate PDF' });
+	await expect(generate).toBeEnabled();
+	const created = page.waitForResponse((response) => response.url().endsWith(reportPdfPath) && response.request().method() === 'POST');
+	await generate.click();
+	const response = await created;
+	expect(response.status()).toBe(202);
+	expect(response.request().postDataJSON()).toMatchObject({
+		preset: 'custom', from: range.from, to: range.to, description: 'PDF November',
+		language: 'sv', showMoney: 'true', includeDetails: 'true',
+	});
+	const job = parseReportJobResponse(await response.json());
+	await expect(pdf).toContainText(range.from + ' to ' + range.to + ' · Swedish · Rates and amounts · Detailed entries');
+	await page.getByRole('button', { name: 'Today', exact: true }).click();
+	await expect(pdf).toContainText('This PDF uses an earlier selection.');
+	await page.reload();
+	await expect(pdf).toContainText('This PDF uses an earlier selection.');
+	const downloadLink = pdf.getByRole('link', { name: 'Download PDF' });
+	await expect(downloadLink).toBeVisible({ timeout: 20_000 });
+	const downloadPath = reportJobsPath + '/' + job.id + '/download';
+	await expect(downloadLink).toHaveAttribute('href', downloadPath);
+	expect((await request.get(downloadPath)).status()).toBe(401);
+	const waiting = page.waitForEvent('download');
+	await downloadLink.click();
+	const download = await waiting;
+	expect(download.suggestedFilename()).toMatch(/\.pdf$/);
+	const file = await download.path();
+	expect((await readFile(file)).subarray(0, 5).toString()).toBe('%PDF-');
+	const saved = parseEntryResponse(await (await page.request.get(entriesPath + '/' + entry.id)).json());
+	expect(saved.invoicedAt).toBeUndefined();
+	expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+});
+
+test('recovers a PDF status failure and retries the original scope after a terminal job failure', async ({ page }) => {
+	const post = await signIn(page);
+	await post(entriesPath, {
+		...standard, kind: 'duration-only', description: 'PDF retry fixture', localDate: '2026-11-25', durationSeconds: 1800,
+	});
+	await page.goto('/reports/preview?preset=custom&from=2026-11-25&to=2026-11-25&description=PDF+retry');
+	const pdf = page.getByRole('region', { name: 'PDF report' });
+	await page.route('**' + reportPdfPath, (route) => route.fulfill({
+		status: 429, json: { code: 'REPORT_QUEUE_FULL', message: 'The PDF queue is full.' },
+	}), { times: 1 });
+	await pdf.getByRole('button', { name: 'Generate PDF' }).click();
+	await expect(pdf.getByRole('alert')).toContainText('The PDF queue is full.');
+	await page.route('**' + reportJobsPath + '/*', (route) => route.abort(), { times: 1 });
+	await pdf.getByRole('button', { name: 'Retry PDF request' }).click();
+	await expect(pdf.getByRole('alert')).toContainText('Could not check the PDF status.');
+	await page.route('**' + reportJobsPath + '/*', async (route) => {
+		const fetched = await route.fetch();
+		const result = parseReportJobResponse(await fetched.json());
+		await route.fulfill({ response: fetched, json: { ...result, status: 'failed',
+			expiresAt: null, downloadUrl: null, errorCode: 'REPORT_TIMEOUT' } });
+	}, { times: 1 });
+	await pdf.getByRole('button', { name: 'Check PDF status' }).click();
+	await expect(pdf).toContainText('PDF generation failed.');
+	await expect(pdf).toContainText('The report took too long.');
+	await page.getByLabel('Report language').selectOption('sv');
+	await expect(pdf).toContainText('This PDF uses an earlier selection.');
+	const response = page.waitForResponse((item) => item.url().endsWith(reportPdfPath) && item.request().method() === 'POST');
+	await pdf.getByRole('button', { name: 'Generate this PDF again' }).click();
+	const retry = await response;
+	expect(retry.status()).toBe(202);
+	expect(retry.request().postDataJSON()).toMatchObject({
+		from: '2026-11-25', to: '2026-11-25', description: 'PDF retry', language: 'en', showMoney: 'false', includeDetails: 'false',
+	});
+	await expect(pdf.getByRole('link', { name: 'Download PDF' })).toBeVisible({ timeout: 20_000 });
 });

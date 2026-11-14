@@ -81,19 +81,45 @@ const workAllocationFields = { entryId: true, localDate: true, seconds: true, am
 type CompletedWorkRow = Prisma.EntryDayAllocationGetPayload<{ select: typeof workAllocationFields & { entry: { select: typeof workEntryFields } } }>;
 type ReportWorkRow = Prisma.EntryDayAllocationGetPayload<{ select: typeof workAllocationFields & { entry: { select: typeof reportEntryFields } } }>;
 
+type ReportReadLimit = { maxRows: number; acceptRow: (row: ReportWorkRow) => void };
+
 export function readCompletedWork(transaction: Prisma.TransactionClient, scope: WorkScope, entryIds?: string[]): Promise<CompletedWorkRow[]>;
-export function readCompletedWork(transaction: Prisma.TransactionClient, scope: WorkScope, entryIds: undefined, includeReportFields: true): Promise<ReportWorkRow[]>;
-export async function readCompletedWork(transaction: Prisma.TransactionClient, scope: WorkScope, entryIds?: string[], includeReportFields = false) {
+export function readCompletedWork(
+	transaction: Prisma.TransactionClient, scope: WorkScope, entryIds: undefined, includeReportFields: true, limit?: ReportReadLimit,
+): Promise<ReportWorkRow[]>;
+export async function readCompletedWork(
+	transaction: Prisma.TransactionClient, scope: WorkScope, entryIds?: string[], includeReportFields = false, limit?: ReportReadLimit,
+) {
 	if (scope.incompatibleSelection) return [];
-	const rows = await transaction.entryDayAllocation.findMany({
-		where: { entryId: entryIds ? { in: entryIds } : undefined, localDate: { gte: scope.range.from, lte: scope.range.to },
-			entry: { ...scope.entryWhere, completion: 'complete' } },
-		select: {
-			...workAllocationFields,
-			entry: { select: includeReportFields ? reportEntryFields : workEntryFields },
-		},
-	});
-	return rows.filter(({ entry }) => scope.matchesSearch(entry));
+	const rows = [];
+	let cursor: Prisma.EntryDayAllocationWhereUniqueInput | undefined;
+	let scanned = 0;
+	const batchSize = 256;
+	do {
+		const batch = await transaction.entryDayAllocation.findMany({
+			where: { entryId: entryIds ? { in: entryIds } : undefined, localDate: { gte: scope.range.from, lte: scope.range.to },
+				entry: { ...scope.entryWhere, completion: 'complete' } },
+			select: {
+				...workAllocationFields,
+				entry: { select: includeReportFields ? reportEntryFields : workEntryFields },
+			},
+			orderBy: [{ localDate: 'asc' }, { entryId: 'asc' }], take: batchSize, cursor, skip: cursor ? 1 : 0,
+		});
+		scanned += batch.length;
+		if (limit && scanned > limit.maxRows) {
+			throw new ApiRequestError(422, 'REPORT_INPUT_TOO_LARGE', 'Shorten the report period or select a client or project.');
+		}
+		for (const row of batch) {
+			if (!scope.matchesSearch(row.entry)) continue;
+			limit?.acceptRow(row as ReportWorkRow);
+			rows.push(row);
+		}
+		const last = batch.at(-1);
+		cursor = batch.length === batchSize && last
+			? { entryId_localDate: { entryId: last.entryId, localDate: last.localDate } }
+			: undefined;
+	} while (cursor);
+	return rows;
 }
 
 export async function readIncompleteWork<T extends Prisma.EntryInclude>(

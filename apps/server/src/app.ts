@@ -16,8 +16,9 @@ import { registerCatalog } from './catalog/routes.ts';
 import type { CatalogStore } from './catalog/store.ts';
 import { registerEntries } from './entries/routes.ts';
 import type { EntryStore } from './entries/store.ts';
-import { registerReportSettings, registerReports } from './reports/routes.ts';
+import { registerReportJobs, registerReportSettings, registerReports } from './reports/routes.ts';
 import type { createReportPreview } from './reports/routes.ts';
+import type { createReportJobs } from './reports/jobs.ts';
 import type { createReportSettings } from './reports/settings.ts';
 import { registerTimer } from './timer/routes.ts';
 import type { TimerStore } from './timer/store.ts';
@@ -29,11 +30,12 @@ interface AppOptions {
 	catalog?: CatalogStore;
 	entries?: EntryStore;
 	reportPreview?: ReturnType<typeof createReportPreview>;
+	reportJobs?: Awaited<ReturnType<typeof createReportJobs>>;
 	reportSettings?: ReturnType<typeof createReportSettings>;
 	timer?: TimerStore;
 }
 
-export async function createApp({ webRoot, logger = false, auth, catalog, entries, timer, reportPreview, reportSettings }: AppOptions = {}) {
+export async function createApp({ webRoot, logger = false, auth, catalog, entries, timer, reportPreview, reportSettings, reportJobs }: AppOptions = {}) {
 	if (webRoot) {
 		await access(resolve(webRoot, 'index.html'));
 	}
@@ -153,6 +155,9 @@ export async function createApp({ webRoot, logger = false, auth, catalog, entrie
 	}
 	if (reportPreview) {
 		registerReports(app, reportPreview);
+	}
+	if (reportJobs) {
+		registerReportJobs(app, reportJobs);
 	}
 	if (reportSettings) {
 		await registerReportSettings(app, reportSettings);

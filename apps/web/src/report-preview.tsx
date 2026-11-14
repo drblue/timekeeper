@@ -8,6 +8,8 @@ import { useSession } from './auth';
 import { formatDuration } from './entry-display';
 import { formatSek } from './money';
 import { DailyReportChart, ProjectReportChart } from './report-charts';
+import { ReportPdf } from './report-pdf';
+import { pdfSelection } from './report-pdf-state';
 import { ReportLogo } from './report-logo';
 import { reportIdentityLabels } from './report-labels';
 import { reportText } from './report-language';
@@ -120,7 +122,7 @@ function ReportAppendix({ rows, showMoney, language }: {
 export function ReportPreview() {
 	const location = reportRoute.useSearch();
 	const navigate = useNavigate({ from: '/reports/preview' });
-	const { refresh } = useSession();
+	const { refresh, session } = useSession();
 	const heading = useRef<HTMLHeadingElement>(null);
 	const { showMoney, language, includeDetails, back, ...search } = location;
 	const filters = workListQueryString(search);
@@ -178,6 +180,8 @@ export function ReportPreview() {
 					</label>
 				</div>
 			</section>
+			<ReportPdf key={session.account?.email} account={session.account?.email ?? ''}
+				selection={data && !report.isFetching && !report.isError && !data.incompatibleSelection ? pdfSelection(data) : undefined} />
 			{report.isError ? (
 				<div className="feedback error catalog-load-error">
 					{report.error instanceof ApiRequestError && report.error.code === 'REPORT_RANGE_TOO_LONG' ? (

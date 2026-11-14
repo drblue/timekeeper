@@ -24,6 +24,7 @@ model Account {
   operationReceipts OperationReceipt[]
   bulkEntryPreviews BulkEntryPreview[]
   reportSettings ReportSettings?
+  reportJobs ReportJob[]
 }
 
 model Session {
@@ -45,6 +46,20 @@ model ReportSettings {
 	logoWidth    Int?
 	logoHeight   Int?
 	logoBytes    Bytes?
+}
+
+model ReportJob {
+	id        String   @id
+	accountId String
+	account   Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+	status    String
+	createdAt DateTime
+	expiresAt DateTime?
+	input     String?
+	errorCode String?
+
+	@@index([status, createdAt])
+	@@index([expiresAt])
 }
 
 model Client {

@@ -8,6 +8,7 @@ import { Login } from './login';
 import { Password } from './password';
 import { writeBulkOperation } from './bulk-operation';
 import { writeTimerOperation } from './timer-operation';
+import { writeReportPdf } from './report-pdf-state';
 import { validateReportSearch } from './report-search';
 import { validateWorkListLocation } from './work-list-search';
 import { WorkspaceTimer } from './workspace-timer';
@@ -27,6 +28,7 @@ function SignOut() {
 				if (session.account) {
 					writeTimerOperation(session.account.email, null);
 					writeBulkOperation(session.account.email, null);
+					writeReportPdf(session.account.email, null);
 				}
 				await replaceSession(undefined);
 			} else {

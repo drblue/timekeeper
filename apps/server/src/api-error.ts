@@ -1,5 +1,5 @@
 export class ApiRequestError extends Error {
-	readonly status: 401 | 404 | 409 | 422;
+	readonly status: 401 | 404 | 409 | 410 | 422 | 429;
 	readonly code: string;
 	readonly field?: string;
 

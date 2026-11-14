@@ -211,7 +211,7 @@ A single report builder accepts normalized filters and produces immutable, rende
 
 The entry-list summary uses the same allocation/grouping helpers. Report money is integer öre and durations are seconds until display formatting. Pie percentages derive from total duration, with explicit zero-total handling. Distinguish project IDs even when names match.
 
-Use pdfmake 0.3.14 behind a server-side renderer interface that accepts `ReportData` and produces PDF bytes. Keep renderer dependencies out of domain and query code. Integrate the production dependency and adapter when implementing PDF jobs and downloads in [issue #18](https://github.com/drblue/timekeeper/issues/18).
+Use pdfmake 0.3.14 behind a server-side renderer interface that accepts `ReportData` and produces PDF bytes. Keep renderer dependencies out of domain and query code. Production and the renderer benchmark use the same adapter.
 
 ### Layout and resource verification
 
@@ -227,7 +227,9 @@ Pass criteria: no clipping, overlap, missing projects, incorrect totals, lost he
 
 Renderer feasibility was verified on the physical ARM64 Pi 4 and the intended x86-64 KVM VPS under Docker. Use these measurements to set production worker limits and repeat the layout and resource checks against the integrated job path. The benchmark's API probe measured loopback liveness without database load. [Pi comparison](pdf-renderer-comparison.md), [VPS comparison](pdf-renderer-vps-comparison.md)
 
-PDF generation runs in a worker process with concurrency one initially, not on the API request event loop. Use database-backed job state, bounded work admission, and a configurable timeout. Jobs return 202 with an ID; the browser polls for completion and downloads an authorized artifact. Recover interrupted jobs on startup using immutable inputs. Expire temporary artifacts without deleting source work or report reproducibility inputs needed for active jobs. No Redis is required initially.
+Run one Timekeeper server and PDF scheduler per SQLite database. The scheduler runs one child renderer at a time with a 384 MiB V8 old-space cap and a 90-second default timeout. Set `TIMEKEEPER_REPORT_TIMEOUT_MS` to an integer from 1 to 600000 to override it. Admission allows up to four queued or running jobs and 16 jobs across pending and unexpired results. Each PDF capture scans at most 8,000 candidate day allocations after the date, association, invoice status and billability filters. This cap applies before literal description or invoice-number search. Shorten the date range or select a client or project to reduce the scan. Each serialized snapshot is limited to 8 MiB and each PDF to 24 MiB.
+
+A job returns 202 with an ID. The browser polls for completion and downloads through the account-authorized endpoint. The server stores PDFs with generated names in a private `DATABASE_FILE.report-artifacts` directory next to SQLite. It restarts interrupted jobs with their persisted inputs, including the captured branding, and discards the input on completion or failure. Downloads and failed results expire 24 hours after finishing. Expired job records are kept for one further day. Cleanup does not alter source work.
 
 ## 10. SQLite deployment and recovery
 
