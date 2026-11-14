@@ -117,7 +117,7 @@ docker compose exec -T app node --input-type=module -e '
 '
 ```
 
-Earlier [production PDF benchmarks](pdf-production-verification.md) exercised native ARM64 Pi 4 and x86-64 VPS images from a previous revision. Treat those measurements as PDF workload evidence and record current Compose verification separately.
+The [native Compose verification](native-compose-verification.md) records fresh installation, replacement and populated upgrade on the Pi 4 and x86-64 VPS. The [production PDF benchmarks](pdf-production-verification.md) record the earlier PDF workload measurements.
 
 ## Protect the pre-migration snapshot
 

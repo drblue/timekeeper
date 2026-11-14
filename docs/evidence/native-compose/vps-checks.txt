@@ -1,0 +1,11 @@
+ID=sha256:6de7e7611ec28b84ceecb83868cb6f96fd94673b04b5a993be7f0584953378fc ARCH=amd64 OS=linux SIZE=949835393
+ID=sha256:6536548e50c9d8d0f2818563c8fe995c9bd0349fa1f00ed6ff77da283ff15544 ARCH=amd64 OS=linux SIZE=1060169590
+user=1000:1000 readonly=true capdrop=["ALL"] health=healthy bind_ip=127.0.0.1
+v24.19.0 linux x64 1000:1000
+seed TLS, secure session, owner-only API, persisted exact entry/amount passed
+restart TLS, secure session, owner-only API, persisted exact entry/amount passed
+Authenticated worker PDF bytes 4907
+Portable archive schema 0016_clockify_undo
+replacement TLS, secure session, owner-only API, persisted exact entry/amount passed
+Populated 0015→0016 upgrade: integrity and foreign keys passed, pre/post fixture state identical, HTTPS readiness passed.
+Temporary Compose resources removed; existing service snapshots identical.
