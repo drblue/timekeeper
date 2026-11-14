@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { maxCatalogNameLength, maxCatalogNotesLength } from '@timekeeper/contracts';
+import { catalogNameKey, maxCatalogNameLength, maxCatalogNotesLength } from '@timekeeper/contracts';
 import type {
 	CatalogListQuery,
 	ClientResponse,
@@ -47,7 +47,7 @@ function projectResponse(project: ProjectWithRate): ProjectResponse {
 	};
 }
 
-function catalogText(input: { name: string; notes: string | null }) {
+export function catalogText(input: { name: string; notes: string | null }) {
 	const name = input.name.trim();
 	const notes = input.notes?.trim() || null;
 	if (!name || [...name].length > maxCatalogNameLength) {
@@ -57,10 +57,6 @@ function catalogText(input: { name: string; notes: string | null }) {
 		throw new ApiRequestError(422, 'INVALID_NOTES', `Enter up to ${maxCatalogNotesLength} characters of notes.`, 'notes');
 	}
 	return { name, notes };
-}
-
-function nameKey(name: string) {
-	return name.trim().toLowerCase().normalize('NFC');
 }
 
 function checkRevision<T extends { revision: number }>(record: T | null, expected: number, resource: 'Client' | 'Project'): T {
@@ -74,12 +70,12 @@ function checkRevision<T extends { revision: number }>(record: T | null, expecte
 }
 
 async function warnDuplicateClient(transaction: Prisma.TransactionClient, accountId: string, name: string, id?: string) {
-	const key = nameKey(name);
+	const key = catalogNameKey(name);
 	const candidates = await transaction.client.findMany({
 		where: { accountId, id: id ? { not: id } : undefined },
 		select: { name: true },
 	});
-	if (candidates.some((client) => nameKey(client.name) === key)) {
+	if (candidates.some((client) => catalogNameKey(client.name) === key)) {
 		throw new ApiRequestError(409, 'DUPLICATE_CLIENT_NAME', 'A client already uses this name.', 'name');
 	}
 }
@@ -87,12 +83,12 @@ async function warnDuplicateClient(transaction: Prisma.TransactionClient, accoun
 async function warnDuplicateProject(
 	transaction: Prisma.TransactionClient, accountId: string, clientId: string | null, name: string, id?: string,
 ) {
-	const key = nameKey(name);
+	const key = catalogNameKey(name);
 	const candidates = await transaction.project.findMany({
 		where: { accountId, clientId, id: id ? { not: id } : undefined },
 		select: { name: true },
 	});
-	if (candidates.some((project) => nameKey(project.name) === key)) {
+	if (candidates.some((project) => catalogNameKey(project.name) === key)) {
 		throw new ApiRequestError(409, 'DUPLICATE_PROJECT_NAME', 'A project already uses this name for the selected client.', 'name');
 	}
 }
@@ -149,7 +145,7 @@ export function createCatalogStore(database: PrismaClient) {
 			return writeForAccount(database, accountId, async (transaction) => {
 				const where = { id, accountId };
 				const current = checkRevision(await transaction.client.findUnique({ where }), input.revision, 'Client');
-				if (!input.confirmDuplicate && nameKey(current.name) !== nameKey(text.name)) {
+				if (!input.confirmDuplicate && catalogNameKey(current.name) !== catalogNameKey(text.name)) {
 					await warnDuplicateClient(transaction, accountId, text.name, id);
 				}
 				const record = await transaction.client.update({
@@ -211,7 +207,7 @@ export function createCatalogStore(database: PrismaClient) {
 					}
 					await requireActiveClient(transaction, accountId, clientId);
 				}
-				if (!input.confirmDuplicate && (changedClient || nameKey(current.name) !== nameKey(text.name))) {
+				if (!input.confirmDuplicate && (changedClient || catalogNameKey(current.name) !== catalogNameKey(text.name))) {
 					await warnDuplicateProject(transaction, accountId, clientId, text.name, id);
 				}
 				const record = await transaction.project.update({

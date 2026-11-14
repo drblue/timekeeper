@@ -1,6 +1,8 @@
 import { Type } from '@sinclair/typebox';
 import type { Static } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
+import { maxCatalogNameLength } from './catalog.js';
+import { NullableHourlyRate, NullableUuid, Revision, Uuid } from './primitives.js';
 
 export const clockifyPreviewPath = '/api/v1/imports/clockify/preview';
 export const maxClockifyCsvBytes = 4 * 1024 * 1024;
@@ -82,5 +84,112 @@ export type ClockifyPreviewResponse = Static<typeof ClockifyPreviewResponse>;
 
 export function parseClockifyPreviewResponse(value: unknown): ClockifyPreviewResponse {
 	if (!Value.Check(ClockifyPreviewResponse, value)) throw new Error('Invalid Clockify inspection response');
+	return value;
+}
+
+export const clockifyStagePath = '/api/v1/imports/clockify/stage';
+export const clockifyReviewPath = '/api/v1/imports/clockify/review';
+export const clockifyCommitPath = '/api/v1/imports/clockify/commit';
+
+export const ClockifyStageResponse = Type.Object({
+	stageId: Uuid,
+	expiresAt: Text,
+	inspection: ClockifyPreviewResponse,
+}, strict);
+
+const CatalogChoice = Type.Union([
+	Type.Object({ mode: Type.Literal('none') }, strict),
+	Type.Object({ mode: Type.Literal('existing'), id: Uuid, revision: Revision }, strict),
+	Type.Object({ mode: Type.Literal('create'), name: Type.String({ minLength: 1, maxLength: maxCatalogNameLength }) }, strict),
+]);
+
+export const ClockifyImportAssociation = Type.Object({ client: CatalogChoice, project: CatalogChoice }, strict);
+export const ClockifyImportBilling = Type.Union([
+	Type.Object({ mode: Type.Literal('non-billable') }, strict),
+	Type.Object({ mode: Type.Literal('billable'), rateOrePerHour: NullableHourlyRate }, strict),
+]);
+const mappingFields = {
+	association: Type.Optional(ClockifyImportAssociation),
+	billing: Type.Optional(ClockifyImportBilling),
+};
+const Occurrence = Type.Union([Type.Literal('earlier'), Type.Literal('later')]);
+export const ClockifyImportRowDecision = Type.Object({
+	line: Type.Integer({ minimum: 2, maximum: maxClockifyCsvBytes + 1 }),
+	...mappingFields,
+	exclude: Type.Optional(Type.Boolean()),
+	acceptIncomplete: Type.Optional(Type.Boolean()),
+	startOccurrence: Type.Optional(Occurrence),
+	endOccurrence: Type.Optional(Occurrence),
+	durationChoice: Type.Optional(Type.Union([Type.Literal('use-timestamps'), Type.Literal('duration-only')])),
+}, strict);
+
+export const ClockifyImportReviewBody = Type.Object({
+	stageId: Uuid,
+	defaults: Type.Optional(Type.Object(mappingFields, strict)),
+	rows: Type.Array(ClockifyImportRowDecision, { maxItems: maxClockifyRows }),
+}, strict);
+
+export const ClockifyImportReviewResponse = Type.Object({
+	previewToken: NullableUuid,
+	expiresAt: Type.Union([Text, Type.Null()]),
+	canCommit: Type.Boolean(),
+	counts: Type.Object({ new: Count, alreadyImported: Count, excluded: Count, blocked: Count, incomplete: Count, invoiced: Count }, strict),
+	rows: Type.Array(Type.Object({
+		line: Type.Integer({ minimum: 2 }),
+		status: Type.Union([Type.Literal('new'), Type.Literal('already-imported'), Type.Literal('excluded'), Type.Literal('blocked')]),
+		issues: Type.Array(Text),
+		incomplete: Type.Boolean(),
+		invoiced: Type.Boolean(),
+		approved: Type.Union([Type.Null(), Type.Object({
+			clientId: NullableUuid,
+			projectId: NullableUuid,
+			clientName: Type.Union([Text, Type.Null()]),
+			projectName: Type.Union([Text, Type.Null()]),
+			billable: Type.Boolean(),
+			rateOrePerHour: NullableHourlyRate,
+			kind: Type.Union([Type.Literal('timed'), Type.Literal('duration-only')]),
+			localDate: Text,
+			durationSeconds: Count,
+			startAt: Type.Union([Text, Type.Null()]),
+			endAt: Type.Union([Text, Type.Null()]),
+			amountOre: NullableHourlyRate,
+		}, strict)]),
+	}, strict), { maxItems: maxClockifyRows }),
+	createClients: Type.Array(Type.Object({ name: Text }, strict)),
+	createProjects: Type.Array(Type.Object({ name: Text, clientId: NullableUuid, clientName: Type.Union([Text, Type.Null()]) }, strict)),
+}, strict);
+
+export const ClockifyImportCommitBody = Type.Object({ previewToken: Uuid }, strict);
+export const ClockifyImportCommitResponse = Type.Object({
+	batchId: NullableUuid,
+	createdCount: Count,
+	alreadyImportedCount: Count,
+	excludedCount: Count,
+	incompleteCount: Count,
+	invoicedCount: Count,
+	serverNow: Text,
+}, strict);
+
+export type ClockifyStageResponse = Static<typeof ClockifyStageResponse>;
+export type ClockifyImportAssociation = Static<typeof ClockifyImportAssociation>;
+export type ClockifyImportBilling = Static<typeof ClockifyImportBilling>;
+export type ClockifyImportRowDecision = Static<typeof ClockifyImportRowDecision>;
+export type ClockifyImportReviewBody = Static<typeof ClockifyImportReviewBody>;
+export type ClockifyImportReviewResponse = Static<typeof ClockifyImportReviewResponse>;
+export type ClockifyImportCommitBody = Static<typeof ClockifyImportCommitBody>;
+export type ClockifyImportCommitResponse = Static<typeof ClockifyImportCommitResponse>;
+
+export function parseClockifyStageResponse(value: unknown): ClockifyStageResponse {
+	if (!Value.Check(ClockifyStageResponse, value)) throw new Error('Invalid Clockify stage response');
+	return value;
+}
+
+export function parseClockifyImportReviewResponse(value: unknown): ClockifyImportReviewResponse {
+	if (!Value.Check(ClockifyImportReviewResponse, value)) throw new Error('Invalid Clockify review response');
+	return value;
+}
+
+export function parseClockifyImportCommitResponse(value: unknown): ClockifyImportCommitResponse {
+	if (!Value.Check(ClockifyImportCommitResponse, value)) throw new Error('Invalid Clockify commit response');
 	return value;
 }

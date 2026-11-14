@@ -16,6 +16,7 @@ import { registerCatalog } from './catalog/routes.ts';
 import type { CatalogStore } from './catalog/store.ts';
 import { registerEntries } from './entries/routes.ts';
 import type { EntryStore } from './entries/store.ts';
+import type { createClockifyImportStore } from './imports/clockify-store.ts';
 import { registerClockifyImport } from './imports/routes.ts';
 import { registerReportJobs, registerReportSettings, registerReports } from './reports/routes.ts';
 import type { createReportPreview } from './reports/routes.ts';
@@ -30,13 +31,14 @@ interface AppOptions {
 	auth?: AuthOptions;
 	catalog?: CatalogStore;
 	entries?: EntryStore;
+	clockifyImport?: ReturnType<typeof createClockifyImportStore>;
 	reportPreview?: ReturnType<typeof createReportPreview>;
 	reportJobs?: Awaited<ReturnType<typeof createReportJobs>>;
 	reportSettings?: ReturnType<typeof createReportSettings>;
 	timer?: TimerStore;
 }
 
-export async function createApp({ webRoot, logger = false, auth, catalog, entries, timer, reportPreview, reportSettings, reportJobs }: AppOptions = {}) {
+export async function createApp({ webRoot, logger = false, auth, catalog, entries, timer, reportPreview, reportSettings, reportJobs, clockifyImport }: AppOptions = {}) {
 	if (webRoot) {
 		await access(resolve(webRoot, 'index.html'));
 	}
@@ -148,7 +150,7 @@ export async function createApp({ webRoot, logger = false, auth, catalog, entrie
 	});
 
 	await registerAccountAccess(app, auth);
-	await registerClockifyImport(app);
+	await registerClockifyImport(app, clockifyImport);
 	if (catalog) {
 		registerCatalog(app, catalog);
 	}

@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { SubmitEvent } from 'react';
 import { ApiRequestError, requestError } from './api';
 import { authError, useSession } from './auth';
+import { ClockifyImport, usePendingClockifyImport } from './clockify-import';
 import { ClockifyRows } from './clockify-rows';
 
 const inspectionRoute = getRouteApi('/protected/imports/clockify');
@@ -43,6 +44,8 @@ function userLabel(user: ClockifyPreviewResponse['users'][number]) {
 export function ClockifyInspection() {
 	const search = inspectionRoute.useSearch();
 	const { session, refresh } = useSession();
+	const [pendingImport, savePendingImport] = usePendingClockifyImport(session.account?.email ?? '');
+	const [preparingImport, setPreparingImport] = useState(() => !!pendingImport);
 	const [file, setFile] = useState<File>();
 	const [zone, setZone] = useState<string>(entryTimeZone);
 	const [user, setUser] = useState('');
@@ -132,72 +135,96 @@ export function ClockifyInspection() {
 
 	const selected = preview?.users.find((candidate) => candidate.id === preview.selectedUserId);
 	return (
-		<section className="entry-page clockify-page" aria-labelledby="clockify-heading">
-			<h1 id="clockify-heading" className="entry-heading" tabIndex={-1} ref={heading}>Inspect Clockify export</h1>
-			<p className="field-hint">Review time entries from a Clockify Detailed report CSV before importing them.</p>
-			<form className="panel record-editor" onSubmit={(event) => void inspect(event)} aria-busy={busy}>
-				<div className="field">
-					<label htmlFor="clockify-file">Clockify CSV file</label>
-					<input id="clockify-file" ref={fileInput} type="file" accept=".csv,text/csv" disabled={busy}
-						onChange={(event) => changeFile(event.target.files?.[0])}
-						aria-invalid={error?.field === 'file' ? true : undefined}
-						aria-describedby={error?.field === 'file' ? 'clockify-file-hint clockify-error' : 'clockify-file-hint'} />
-					<p id="clockify-file-hint" className="field-hint">UTF-8 CSV, up to 4 MiB and {maxClockifyRows.toLocaleString('en-GB')} time entries.</p>
-				</div>
-				<div className="field clockify-zone">
-					<label htmlFor="clockify-zone">Source time zone</label>
-					<input id="clockify-zone" ref={zoneInput} list="clockify-zones" value={zone} disabled={busy}
-						maxLength={128} autoComplete="off" spellCheck={false}
-						onChange={(event) => { setZone(event.target.value); setError(undefined); }}
-						aria-invalid={error?.field === 'zone' ? true : undefined}
-						aria-describedby={error?.field === 'zone' ? 'clockify-zone-hint clockify-error' : 'clockify-zone-hint'} />
-					<datalist id="clockify-zones">{suggestedZones.map((option) => <option key={option} value={option} />)}</datalist>
-					<p id="clockify-zone-hint" className="field-hint">Use the time zone shown in Clockify when the CSV was exported.</p>
-				</div>
-				{preview && preview.users.length > 1 ? (
-					<div className="field">
-						<label htmlFor="clockify-user">Clockify user</label>
-						<select id="clockify-user" ref={userInput} value={user} disabled={busy}
-							onChange={(event) => { setUser(event.target.value); setError(undefined); }}
-							aria-invalid={error?.field === 'user' ? true : undefined}
-							aria-describedby={error?.field === 'user' ? 'clockify-user-hint clockify-error' : 'clockify-user-hint'}>
-							<option value="">Choose a user</option>
-							{preview.users.map((candidate) => (
-								<option key={candidate.id} value={candidate.id}>{userLabel(candidate)} ({candidate.rowCount})</option>
-							))}
-						</select>
-						<p id="clockify-user-hint" className="field-hint">This file contains {preview.users.length} users. Choose one to inspect.</p>
-					</div>
-				) : null}
-				{error ? <p id="clockify-error" className="feedback error" ref={errorMessage} tabIndex={-1} role="alert">{error.message}</p> : null}
-				{busy ? <p className="field-hint" role="status">Inspecting the CSV…</p> : null}
-				<div className="form-actions">
-					<button type="submit" className="primary" disabled={!file || busy}>{preview ? 'Inspect selection' : 'Inspect file'}</button>
-					<Link className="action-link" to="/entries" search={search} state={{ clockifyInspectionReturned: true }}>Cancel inspection</Link>
-				</div>
-			</form>
-			{preview && changed ? (
-				<p className="feedback warning" role="status">Inspect the selection to see results for the new user or time zone.</p>
-			) : null}
-			{preview && !changed && !busy ? (
-				<section className="panel report-section clockify-results" aria-labelledby="clockify-results-heading">
-					<h2 id="clockify-results-heading" tabIndex={-1} ref={resultHeading}>Inspection results</h2>
-					<p className="field-hint">
-						{selected ? userLabel(selected) + ' · ' : ''}{preview.sourceTimeZone}
-					</p>
-					<dl className="clockify-counts">
-						<div><dt>Rows in file</dt><dd>{preview.counts.total}</dd></div>
-						<div><dt>Selected rows</dt><dd>{preview.counts.selected}</dd></div>
-						<div><dt>Valid</dt><dd>{preview.counts.valid}</dd></div>
-						<div><dt>Needs review</dt><dd>{preview.counts.review}</dd></div>
-						<div><dt>Invalid</dt><dd>{preview.counts.invalid}</dd></div>
-					</dl>
-					{preview.counts.unassigned ? <p className="field-hint">{preview.counts.unassigned} invalid {preview.counts.unassigned === 1 ? 'row has' : 'rows have'} no identifiable user.</p> : null}
-					{preview.requiresUserSelection ? <p>Choose a Clockify user above to inspect their time entries.</p> : null}
-					{preview.rows.length ? <ClockifyRows key={preview.sourceTimeZone + ':' + preview.selectedUserId} rows={preview.rows} /> : null}
-					<p className="field-hint">Inspection leaves your time entries, clients, and projects unchanged.</p>
+		<>
+			{preparingImport || pendingImport ? (
+				<section className="entry-page clockify-page" aria-labelledby="clockify-import-page-heading">
+					<h1 id="clockify-import-page-heading" className="entry-heading">Clockify import</h1>
+					<ClockifyImport file={file} inspection={preview} pending={pendingImport} onPending={savePendingImport}
+						onFinished={() => {
+							changeFile();
+							if (fileInput.current) fileInput.current.value = '';
+							setPreparingImport(false);
+							requestAnimationFrame(() => heading.current?.focus());
+						}}
+						onBack={() => {
+							setPreparingImport(false);
+							requestAnimationFrame(() => (resultHeading.current ?? heading.current)?.focus());
+						}} />
+					{!pendingImport ? <div><Link to="/entries" search={search} state={{ clockifyInspectionReturned: true }}>Back to time entries</Link></div> : null}
 				</section>
 			) : null}
-		</section>
+			<section className="entry-page clockify-page" aria-labelledby="clockify-heading" hidden={preparingImport || !!pendingImport}>
+				<h1 id="clockify-heading" className="entry-heading" tabIndex={-1} ref={heading}>Inspect Clockify export</h1>
+				<p className="field-hint">Review time entries from a Clockify Detailed report CSV before importing them.</p>
+				<form className="panel record-editor" onSubmit={(event) => void inspect(event)} aria-busy={busy}>
+					<div className="field">
+						<label htmlFor="clockify-file">Clockify CSV file</label>
+						<input id="clockify-file" ref={fileInput} type="file" accept=".csv,text/csv" disabled={busy}
+							onChange={(event) => changeFile(event.target.files?.[0])}
+							aria-invalid={error?.field === 'file' ? true : undefined}
+							aria-describedby={error?.field === 'file' ? 'clockify-file-hint clockify-error' : 'clockify-file-hint'} />
+						<p id="clockify-file-hint" className="field-hint">UTF-8 CSV, up to 4 MiB and {maxClockifyRows.toLocaleString('en-GB')} time entries.</p>
+					</div>
+					<div className="field clockify-zone">
+						<label htmlFor="clockify-zone">Source time zone</label>
+						<input id="clockify-zone" ref={zoneInput} list="clockify-zones" value={zone} disabled={busy}
+							maxLength={128} autoComplete="off" spellCheck={false}
+							onChange={(event) => { setZone(event.target.value); setError(undefined); }}
+							aria-invalid={error?.field === 'zone' ? true : undefined}
+							aria-describedby={error?.field === 'zone' ? 'clockify-zone-hint clockify-error' : 'clockify-zone-hint'} />
+						<datalist id="clockify-zones">{suggestedZones.map((option) => <option key={option} value={option} />)}</datalist>
+						<p id="clockify-zone-hint" className="field-hint">Use the time zone shown in Clockify when the CSV was exported.</p>
+					</div>
+					{preview && preview.users.length > 1 ? (
+						<div className="field">
+							<label htmlFor="clockify-user">Clockify user</label>
+							<select id="clockify-user" ref={userInput} value={user} disabled={busy}
+								onChange={(event) => { setUser(event.target.value); setError(undefined); }}
+								aria-invalid={error?.field === 'user' ? true : undefined}
+								aria-describedby={error?.field === 'user' ? 'clockify-user-hint clockify-error' : 'clockify-user-hint'}>
+								<option value="">Choose a user</option>
+								{preview.users.map((candidate) => (
+									<option key={candidate.id} value={candidate.id}>{userLabel(candidate)} ({candidate.rowCount})</option>
+								))}
+							</select>
+							<p id="clockify-user-hint" className="field-hint">This file contains {preview.users.length} users. Choose one to inspect.</p>
+						</div>
+					) : null}
+					{error ? <p id="clockify-error" className="feedback error" ref={errorMessage} tabIndex={-1} role="alert">{error.message}</p> : null}
+					{busy ? <p className="field-hint" role="status">Inspecting the CSV…</p> : null}
+					<div className="form-actions">
+						<button type="submit" className="primary" disabled={!file || busy}>{preview ? 'Inspect selection' : 'Inspect file'}</button>
+						<Link className="action-link" to="/entries" search={search} state={{ clockifyInspectionReturned: true }}>Cancel inspection</Link>
+					</div>
+				</form>
+				{preview && changed ? (
+					<p className="feedback warning" role="status">Inspect the selection to see results for the new user or time zone.</p>
+				) : null}
+				{preview && !changed && !busy ? (
+					<section className="panel report-section clockify-results" aria-labelledby="clockify-results-heading">
+						<h2 id="clockify-results-heading" tabIndex={-1} ref={resultHeading}>Inspection results</h2>
+						<p className="field-hint">
+							{selected ? userLabel(selected) + ' · ' : ''}{preview.sourceTimeZone}
+						</p>
+						<dl className="clockify-counts">
+							<div><dt>Rows in file</dt><dd>{preview.counts.total}</dd></div>
+							<div><dt>Selected rows</dt><dd>{preview.counts.selected}</dd></div>
+							<div><dt>Valid</dt><dd>{preview.counts.valid}</dd></div>
+							<div><dt>Needs review</dt><dd>{preview.counts.review}</dd></div>
+							<div><dt>Invalid</dt><dd>{preview.counts.invalid}</dd></div>
+						</dl>
+						{preview.counts.unassigned ? <p className="field-hint">{preview.counts.unassigned} invalid {preview.counts.unassigned === 1 ? 'row has' : 'rows have'} no identifiable user.</p> : null}
+						{preview.requiresUserSelection ? <p>Choose a Clockify user above to inspect their time entries.</p> : null}
+						{preview.rows.length ? <ClockifyRows key={preview.sourceTimeZone + ':' + preview.selectedUserId} rows={preview.rows} /> : null}
+						<p className="field-hint">Inspection leaves your time entries, clients, and projects unchanged.</p>
+						{preview.selectedUserId ? (
+							<div className="form-actions">
+								<button className="primary" type="button" onClick={() => setPreparingImport(true)}>Prepare import</button>
+							</div>
+						) : null}
+					</section>
+				) : null}
+			</section>
+		</>
 	);
 }

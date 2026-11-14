@@ -5,6 +5,7 @@ import { databaseUrl } from './auth/database-location.ts';
 import { openDatabase } from './auth/database.ts';
 import { createAuthStore } from './auth/store.ts';
 import { createCatalogStore } from './catalog/store.ts';
+import { createClockifyImportStore } from './imports/clockify-store.ts';
 import { createEntryStore } from './entries/store.ts';
 import { createReportJobs, reportTimeoutMs } from './reports/jobs.ts';
 import { createReportPreview } from './reports/routes.ts';
@@ -40,6 +41,7 @@ try {
 		logger: true,
 		auth: { config, store },
 		catalog: createCatalogStore(database),
+		clockifyImport: createClockifyImportStore(database),
 		entries: createEntryStore(database),
 		reportPreview: createReportPreview(database),
 		reportJobs,

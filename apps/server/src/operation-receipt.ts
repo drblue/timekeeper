@@ -5,7 +5,7 @@ import type { Prisma, PrismaClient } from './generated/prisma/client.ts';
 
 export function writeWithReceipt<T extends { serverNow: string }>(
 	database: PrismaClient, accountId: string, key: string, request: readonly unknown[],
-	parse: (value: unknown) => T, run: (transaction: Prisma.TransactionClient) => Promise<T>,
+	parse: (value: unknown) => T, run: (transaction: Prisma.TransactionClient) => Promise<T>, timeout?: number,
 ) {
 	const requestHash = createHash('sha256').update(JSON.stringify(request)).digest('hex');
 	return writeForAccount(database, accountId, async (transaction) => {
@@ -22,5 +22,5 @@ export function writeWithReceipt<T extends { serverNow: string }>(
 			accountId, key, requestHash, resultSnapshot: JSON.stringify(result), completedAt: new Date(result.serverNow),
 		} });
 		return result;
-	});
+	}, timeout);
 }

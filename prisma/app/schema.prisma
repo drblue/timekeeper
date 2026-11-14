@@ -25,6 +25,8 @@ model Account {
   bulkEntryPreviews BulkEntryPreview[]
   reportSettings ReportSettings?
   reportJobs ReportJob[]
+  clockifyImportStages ClockifyImportStage[]
+  clockifyImportBatches ClockifyImportBatch[]
 }
 
 model Session {
@@ -130,6 +132,7 @@ model Entry {
 	createdAt              DateTime             @default(now())
 	allocations            EntryDayAllocation[]
 	history                EntryHistory[]
+	clockifyImportIdentities ClockifyImportIdentity[]
 
 	@@index([accountId, localDate, createdAt])
 	@@index([accountId, projectId])
@@ -201,4 +204,59 @@ model EntryHistory {
 	operationKey   String?
 
 	@@index([entryId, at])
+}
+
+model ClockifyImportStage {
+	id        String @id
+	accountId String
+	account   Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+	expiresAt DateTime
+	snapshot  String
+	previews  ClockifyImportPreview[]
+
+	@@unique([accountId, id])
+	@@index([accountId, expiresAt])
+}
+
+model ClockifyImportPreview {
+	id         String @id
+	accountId  String
+	stageId    String
+	stage      ClockifyImportStage @relation(fields: [accountId, stageId], references: [accountId, id], onDelete: Cascade)
+	expiresAt  DateTime
+	decisions  String
+	planHash   String
+	consumedAt DateTime?
+
+	@@index([accountId, expiresAt])
+}
+
+model ClockifyImportBatch {
+	id          String @id
+	accountId   String
+	account     Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+	committedAt DateTime
+	snapshot    String
+	identities  ClockifyImportIdentity[]
+
+	@@unique([accountId, id])
+	@@index([accountId, committedAt])
+}
+
+model ClockifyImportIdentity {
+	accountId      String
+	fingerprint    String
+	occurrence     Int @default(1)
+	candidateKey   String
+	entryId        String
+	entry          Entry @relation(fields: [accountId, entryId], references: [accountId, id], onDelete: Restrict)
+	batchId        String
+	batch          ClockifyImportBatch @relation(fields: [accountId, batchId], references: [accountId, id], onDelete: Restrict)
+	entryRevision  Int
+	sourceSnapshot String
+
+	@@id([accountId, fingerprint, occurrence])
+	@@index([accountId, candidateKey])
+	@@index([accountId, batchId])
+	@@index([accountId, entryId])
 }

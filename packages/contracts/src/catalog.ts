@@ -6,6 +6,10 @@ import { NullableHourlyRate, NullableUuid, Revision, Uuid } from './primitives.j
 export const clientsPath = '/api/v1/clients';
 export const projectsPath = '/api/v1/projects';
 export const maxCatalogNameLength = 160;
+
+export function catalogNameKey(name: string) {
+	return name.trim().toLowerCase().normalize('NFC');
+}
 export const maxCatalogNotesLength = 4_000;
 export const maxHourlyRateOre = '9223372036854775807';
 

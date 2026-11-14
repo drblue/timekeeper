@@ -62,7 +62,7 @@ async function closeRunningTimer(
 	const time = timedInterval(timer.startAt, endAt, true);
 	const { description, projectId, directClientId, billable, assignedRateOrePerHour, accountId, id, revision } = timer;
 	const entry = await writeEntry(transaction, accountId, 'timed', time,
-		{ description, projectId, directClientId, billable, assignedRateOrePerHour }, serverNow, { key });
+		{ description, projectId, directClientId, billable, assignedRateOrePerHour }, serverNow, { allowIncomplete: true, operationKey: key });
 	if (entry.kind !== 'timed') throw new Error('Invalid stopped timer entry');
 	await transaction.runningTimer.delete({ where: { accountId, id, revision } });
 	return entry;

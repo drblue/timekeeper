@@ -137,21 +137,21 @@ async function replaceEntry(
 
 export async function writeEntry(
 	transaction: Prisma.TransactionClient, accountId: string, kind: EntryResponse['kind'], time: EntryTime,
-	work: WorkSettings, createdAt: Date, timerOperation?: { key: string },
+	work: WorkSettings, createdAt: Date, options?: { allowIncomplete?: boolean; operationKey?: string; invoicedAt?: Date },
 ): Promise<EntryResponse> {
 	const billing = entryBilling(work, time.durationSeconds);
-	const billableAmountOre = timerOperation ? billing.billableAmountOre : requireCompleteAmount(billing);
+	const billableAmountOre = options?.allowIncomplete ? billing.billableAmountOre : requireCompleteAmount(billing);
 	const { localDate, durationSeconds, startAt, endAt } = time;
 	const entry = await transaction.entry.create({
 		data: {
 			id: randomUUID(), accountId, kind, localDate, durationSeconds, startAt, endAt, ...work,
-			billableAmountOre, createdAt, completion: billableAmountOre === null ? 'incomplete' : 'complete',
+			billableAmountOre, createdAt, invoicedAt: options?.invoicedAt, completion: billableAmountOre === null ? 'incomplete' : 'complete',
 			...(billableAmountOre === null ? {} : { allocations: { createMany: { data: completedAllocations(time, billableAmountOre) } } }),
 		},
 		include: entryRelations,
 	});
 	const response = entryResponse(entry);
-	await recordHistory(transaction, 'created', createdAt, response, undefined, timerOperation?.key);
+	await recordHistory(transaction, 'created', createdAt, response, undefined, options?.operationKey);
 	return response;
 }
 

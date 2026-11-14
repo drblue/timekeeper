@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from './generated/prisma/client.ts';
 
 export function writeForAccount<T>(
 	database: PrismaClient, accountId: string, operation: (transaction: Prisma.TransactionClient) => Promise<T>,
+	timeout?: number,
 ) {
 	return database.$transaction(async (transaction) => {
 		// Acquire the SQLite writer lock before checking associations, rate defaults or revisions.
@@ -11,5 +12,5 @@ export function writeForAccount<T>(
 			throw new ApiRequestError(401, 'AUTH_REQUIRED', 'Sign in to continue.');
 		}
 		return operation(transaction);
-	});
+	}, timeout === undefined ? undefined : { timeout });
 }

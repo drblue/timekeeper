@@ -6,6 +6,7 @@ import { authError, postAuth, SessionContext, useReplaceSession, useSession, use
 import { Home } from './home';
 import { Login } from './login';
 import { Password } from './password';
+import { writePendingClockifyImport } from './clockify-import-pending';
 import { writeBulkOperation } from './bulk-operation';
 import { writeTimerOperation } from './timer-operation';
 import { writeReportPdf } from './report-pdf-state';
@@ -28,6 +29,7 @@ function SignOut() {
 				if (session.account) {
 					writeTimerOperation(session.account.email, null);
 					writeBulkOperation(session.account.email, null);
+					writePendingClockifyImport(session.account.email, null);
 					writeReportPdf(session.account.email, null);
 				}
 				await replaceSession(undefined);
