@@ -133,6 +133,7 @@ model Entry {
 	allocations            EntryDayAllocation[]
 	history                EntryHistory[]
 	clockifyImportIdentities ClockifyImportIdentity[]
+	clockifyReleasedIdentity ClockifyReleasedIdentity?
 
 	@@index([accountId, localDate, createdAt])
 	@@index([accountId, projectId])
@@ -236,9 +237,12 @@ model ClockifyImportBatch {
 	accountId   String
 	account     Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
 	committedAt DateTime
+	undoneAt DateTime?
+	undoSnapshot String?
 	snapshot    String
 	identities  ClockifyImportIdentity[]
 	aliases     ClockifyImportAlias[]
+	releasedIdentities ClockifyReleasedIdentity[]
 
 	@@unique([accountId, id])
 	@@index([accountId, committedAt])
@@ -281,4 +285,20 @@ model ClockifyImportAlias {
 	@@index([accountId, candidateKey])
 	@@index([accountId, batchId])
 	@@index([accountId, targetFingerprint, targetOccurrence])
+}
+
+model ClockifyReleasedIdentity {
+	accountId      String
+	entryId        String
+	entry          Entry @relation(fields: [accountId, entryId], references: [accountId, id], onDelete: Restrict)
+	fingerprint    String
+	occurrence     Int
+	candidateKey   String
+	batchId        String
+	batch          ClockifyImportBatch @relation(fields: [accountId, batchId], references: [accountId, id], onDelete: Restrict)
+	entryRevision  Int
+	sourceSnapshot String
+
+	@@id([accountId, entryId])
+	@@index([accountId, batchId])
 }

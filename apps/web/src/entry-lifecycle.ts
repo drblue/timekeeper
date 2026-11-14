@@ -27,6 +27,8 @@ export async function entryLifecycleError(error: unknown, action: Action, refres
 				return 'This entry is no longer in Trash.';
 			case 'ENTRY_RESTORE_EXPIRED':
 				return 'The restore deadline has passed. This entry can no longer be restored.';
+			case 'CLOCKIFY_REIMPORTED':
+				return 'This Clockify occurrence has already been reimported. Review the active entry before restoring from Trash.';
 		}
 		if (error.response.status === 404) return 'This entry is no longer available.';
 	}

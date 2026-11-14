@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ClockifySource } from '@timekeeper/contracts';
+import { ApiRequestError } from '../api-error.ts';
 import type { Prisma } from '../generated/prisma/client.ts';
 
 export function clockifyHash(value: unknown) {
@@ -64,4 +65,18 @@ export async function previousClockifyIdentities(
 		for (const claims of fingerprints.values()) claims.sort((left, right) => left.occurrence - right.occurrence);
 	}
 	return byCandidate;
+}
+
+
+export async function reclaimRestoredClockifyIdentity(transaction: Prisma.TransactionClient, accountId: string, entryId: string, revision: number) {
+	const released = await transaction.clockifyReleasedIdentity.findUnique({ where: { accountId_entryId: { accountId, entryId } } });
+	if (!released) return;
+	const { fingerprint, occurrence } = released;
+	const where = { accountId_fingerprint_occurrence: { accountId, fingerprint, occurrence } };
+	const claim = await transaction.clockifyImportIdentity.findUnique({ where, select: { entryId: true } });
+	const alias = await transaction.clockifyImportAlias.findUnique({ where, select: { fingerprint: true } });
+	if (alias || (claim && claim.entryId !== entryId)) {
+		throw new ApiRequestError(409, 'CLOCKIFY_REIMPORTED', 'This Clockify occurrence has been imported again. Keep the current import or undo it first.');
+	}
+	if (!claim) await transaction.clockifyImportIdentity.create({ data: { ...released, entryRevision: revision } });
 }

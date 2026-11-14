@@ -21,3 +21,17 @@ export async function changeEntryDeletion(
 	await recordHistory(transaction, deletedAt ? 'deleted' : 'restored', now, response, entryResponse(current), operationKey);
 	return response;
 }
+
+
+export async function trashImportedEntry(
+	transaction: Prisma.TransactionClient, current: EntryWithRelations, now: Date, operationKey: string,
+) {
+	const updated = await transaction.entry.update({
+		where: { id: current.id, accountId: current.accountId, revision: current.revision, deletedAt: null, supersededAt: null },
+		data: { deletedAt: now, revision: { increment: 1 } },
+		include: entryRelations,
+	});
+	const response = entryResponse(updated);
+	await recordHistory(transaction, 'clockify-undo', now, response, entryResponse(current), operationKey);
+	return response;
+}

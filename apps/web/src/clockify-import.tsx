@@ -432,6 +432,7 @@ export function ClockifyImport({ file, inspection, onBack, onFinished, pending, 
 			setResult(saved);
 			void queryClient.invalidateQueries({ queryKey: entriesKey });
 			void queryClient.invalidateQueries({ queryKey: catalogKey });
+			void queryClient.invalidateQueries({ queryKey: ['clockify-batches'] });
 		} catch (cause) {
 			if (cause instanceof ApiRequestError && commitRejections.has(cause.code ?? '')) {
 				onPending(null);

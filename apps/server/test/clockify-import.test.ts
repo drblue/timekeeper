@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
-	authSessionPath, bulkEntryCommitPath, bulkEntryPreviewPath, clockifyCommitPath, clockifyCorrectionTargetsPath, clockifyPreviewPath, clockifyReviewPath, clockifyStagePath,
+	authSessionPath, bulkEntryCommitPath, bulkEntryPreviewPath, clockifyBatchesPath, clockifyCommitPath, clockifyCorrectionTargetsPath, clockifyPreviewPath, clockifyReviewPath, clockifyStagePath,
 	csrfHeader, entriesPath, idempotencyKeyHeader, maxClockifyCsvBytes, maxClockifyRows, parseAuthSessionResponse, parseClockifyPreviewResponse,
-	parseClockifyCorrectionTargetsResponse, parseClockifyImportCommitResponse, parseClockifyImportReviewResponse, parseClockifyStageResponse,
+	parseClockifyImportBatchListResponse, parseClockifyUndoPreviewResponse, parseClockifyUndoCommitResponse, parseClockifyCorrectionTargetsResponse, parseClockifyImportCommitResponse, parseClockifyImportReviewResponse, parseClockifyStageResponse,
 } from '@timekeeper/contracts';
 import type { ClockifyImportReviewBody } from '@timekeeper/contracts';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -251,6 +251,7 @@ describe('Clockify mapping and import', () => {
 		await database.clockifyImportStage.deleteMany();
 		await database.clockifyImportAlias.deleteMany();
 		await database.clockifyImportIdentity.deleteMany();
+		await database.clockifyReleasedIdentity.deleteMany();
 		await database.clockifyImportBatch.deleteMany();
 		await database.operationReceipt.deleteMany();
 		await database.bulkEntryPreview.deleteMany();
@@ -784,6 +785,207 @@ describe('Clockify mapping and import', () => {
 		expect(response.json()).toMatchObject({ code: 'CLOCKIFY_IMPORT_TOO_LARGE' });
 		expect(await database.entry.count()).toBe(2);
 	});
+
+	async function undoPreview(batchId: string) {
+		const response = await app.inject({ ...auth, url: `${clockifyBatchesPath}/${batchId}/undo-preview` });
+		expect(response.statusCode, response.body.slice(0, 300)).toBe(200);
+		return parseClockifyUndoPreviewResponse(response.json());
+	}
+
+	function applyUndo(batchId: string, previewHash: string | null, key = randomUUID()) {
+		expect(previewHash).not.toBeNull();
+		return request(`${clockifyBatchesPath}/${batchId}/undo`, { previewHash }, key);
+	}
+
+	async function importRows(records: Partial<Record<Header, string>>[], mapping: ClockifyImportReviewBody['defaults'] = defaults) {
+		const staged = await stage(records);
+		const reviewed = await review({ stageId: staged.stageId, defaults: mapping, rows: [] });
+		const response = await commit(reviewed.previewToken);
+		expect(response.statusCode, response.body).toBe(200);
+		return parseClockifyImportCommitResponse(response.json()).batchId!;
+	}
+
+	it('undoes original invoiced imports into Trash, releases claims and blocks restore after reimport', async () => {
+		const batchId = await importRows([{ Tags: 'invoiced' }]);
+		const before = await database.clockifyImportIdentity.findFirstOrThrow();
+		const approved = await undoPreview(batchId);
+		expect(approved).toMatchObject({ canUndo: true, trashCount: 1, revertCount: 0, releaseIdentityCount: 1,
+			entries: [{ id: before.entryId, action: 'trash', invoicedAt: now.toISOString(), issues: [] }] });
+		expect(await database.clockifyImportIdentity.count()).toBe(1);
+		expect(await database.entry.count({ where: { deletedAt: null } })).toBe(1);
+		const key = randomUUID();
+		const undone = await applyUndo(batchId, approved.previewHash, key);
+		expect(undone.statusCode, undone.body).toBe(200);
+		expect(parseClockifyUndoCommitResponse(undone.json())).toMatchObject({ batchId, trashedCount: 1, releasedIdentityCount: 1 });
+		expect((await applyUndo(batchId, approved.previewHash, key)).json()).toEqual(undone.json());
+		expect((await applyUndo(batchId, approved.previewHash)).json()).toMatchObject({ code: 'CLOCKIFY_BATCH_ALREADY_UNDONE' });
+		expect(await undoPreview(batchId)).toMatchObject({ canUndo: false, issues: ['already-undone'], previewHash: null });
+		expect(await database.entry.findUniqueOrThrow({ where: { id: before.entryId } })).toMatchObject({ deletedAt: now, invoicedAt: now, revision: 2 });
+		const history = await database.entryHistory.findMany({ where: { entryId: before.entryId }, orderBy: { action: 'asc' } });
+		expect(history.map(({ action }) => action)).toEqual(['clockify-undo', 'created']);
+		expect(JSON.parse(history[0]!.beforeSnapshot!).entry.invoicedAt).toBe(now.toISOString());
+		expect(await database.clockifyReleasedIdentity.findFirstOrThrow()).toMatchObject({ entryId: before.entryId, sourceSnapshot: before.sourceSnapshot });
+		expect(await database.client.count()).toBe(1);
+		expect(await database.project.count()).toBe(1);
+		expect(await database.entryDayAllocation.count()).toBe(1);
+
+		const client = await database.client.findFirstOrThrow();
+		const project = await database.project.findFirstOrThrow();
+		const reimported = await importRows([{ Tags: 'invoiced' }], { billing: historicalBilling, association: {
+			client: { mode: 'existing', id: client.id, revision: client.revision },
+			project: { mode: 'existing', id: project.id, revision: project.revision },
+		} });
+		expect(reimported).not.toBe(batchId);
+		const restore = await request(`${entriesPath}/${before.entryId}/restore`, { revision: 2 });
+		expect(restore.statusCode, restore.body).toBe(409);
+		expect(restore.json()).toMatchObject({ code: 'CLOCKIFY_REIMPORTED' });
+		expect(await database.entry.count({ where: { deletedAt: null, invoicedAt: now } })).toBe(1);
+
+		const list = parseClockifyImportBatchListResponse((await app.inject({ ...auth, url: clockifyBatchesPath })).json());
+		expect(list.batches.find(({ id }) => id === batchId)).toMatchObject({ undoneAt: now.toISOString(), createdCount: 1, invoicedCount: 1 });
+	});
+
+	it('restores a released occurrence before reimport by reclaiming exactly that slot', async () => {
+		const batchId = await importRows([{ Tags: 'invoiced' }]);
+		const root = await database.clockifyImportIdentity.findFirstOrThrow();
+		const approved = await undoPreview(batchId);
+		expect((await applyUndo(batchId, approved.previewHash)).statusCode).toBe(200);
+		const staged = await stage([{ Tags: 'invoiced' }]);
+		const possibleReimport = await review({ stageId: staged.stageId, defaults: { billing: historicalBilling, association: noAssociation }, rows: [] });
+		expect(possibleReimport.counts.new).toBe(1);
+		const restored = await request(`${entriesPath}/${root.entryId}/restore`, { revision: 2 });
+		expect(restored.statusCode, restored.body).toBe(200);
+		expect(restored.json()).toMatchObject({ invoicedAt: now.toISOString() });
+		expect(await database.clockifyImportIdentity.findFirstOrThrow()).toMatchObject({ entryId: root.entryId, fingerprint: root.fingerprint, occurrence: 1, entryRevision: 3 });
+		expect((await commit(possibleReimport.previewToken)).json()).toMatchObject({ code: 'CLOCKIFY_PREVIEW_CHANGED' });
+		expect((await review({ stageId: staged.stageId, rows: [] })).counts).toMatchObject({ new: 0, alreadyImported: 1 });
+	});
+
+	it('blocks later invoice, deletion, split, foreign access and stale confirmed undo', async () => {
+		const rows = [{ Description: 'Mark later' }, { ...sampleRows()[0], Description: 'Delete later', Tags: '' },
+			{ Description: 'Split later', 'Start Date': '11/11/2026', 'Start Time': '23:30:00', 'End Date': '12/11/2026', 'End Time': '00:30:00', 'Duration (h)': '01:00:00' }];
+		const batchId = await importRows(rows);
+		const fresh = await undoPreview(batchId);
+		expect(fresh.canUndo).toBe(true);
+		const idFor = async (description: string) => (await database.entry.findFirstOrThrow({ where: { description } })).id;
+		now = new Date(now.getTime() + 1_000);
+		expect((await request(`${entriesPath}/${await idFor('Mark later')}/invoice`, { revision: 1 })).statusCode).toBe(200);
+		expect((await request(`${entriesPath}/${await idFor('Delete later')}/delete`, { revision: 1 })).statusCode).toBe(200);
+		const split = await request(bulkEntryPreviewPath, { action: 'mark-invoiced', splitOutsideRange: true,
+			filters: { from: '2026-11-11', to: '2026-11-11' }, selection: { mode: 'explicit', entryIds: [await idFor('Split later')] } });
+		expect((await request(bulkEntryCommitPath, { previewToken: split.json().previewToken }, randomUUID())).statusCode).toBe(200);
+		const blocked = await undoPreview(batchId);
+		expect(blocked).toMatchObject({ canUndo: false, previewHash: null });
+		expect(blocked.issues).toEqual(expect.arrayContaining(['entry-changed', 'entry-invoiced-later', 'entry-deleted', 'entry-split']));
+		expect((await applyUndo(batchId, fresh.previewHash)).json()).toMatchObject({ code: 'CLOCKIFY_UNDO_CHANGED' });
+		expect((await app.inject({ url: clockifyBatchesPath })).statusCode).toBe(401);
+		const other = randomUUID();
+		await database.$executeRaw`PRAGMA ignore_check_constraints = ON`;
+		try {
+			await database.account.create({ data: { id: other, ownerSlot: 3, email: 'foreign-undo@example.test', passwordHash: 'unused' } });
+		} finally {
+			await database.$executeRaw`PRAGMA ignore_check_constraints = OFF`;
+		}
+		const foreign = await session(other);
+		expect((await app.inject({ ...foreign, url: `${clockifyBatchesPath}/${batchId}/undo-preview` })).statusCode).toBe(404);
+		const foreignCommit = await app.inject({ ...foreign, method: 'POST', url: `${clockifyBatchesPath}/${batchId}/undo`,
+			headers: { ...foreign.headers, [idempotencyKeyHeader]: randomUUID() }, payload: { previewHash: fresh.previewHash } });
+		expect(foreignCommit.statusCode).toBe(404);
+		expect(await database.clockifyImportIdentity.count()).toBe(3);
+	});
+
+	it('requires undoing later alias dependencies, restores raw allocations, and leaves original after-revision stale', async () => {
+		const original = await importRows([{}]);
+		const root = await database.clockifyImportIdentity.findFirstOrThrow();
+		await database.entryDayAllocation.updateMany({ where: { entryId: root.entryId }, data: { calculationVersion: 5 } });
+		now = new Date(now.getTime() + 1_000);
+		const shifted = { Description: 'Corrected work', 'End Time': '10:06:08', 'Duration (h)': '02:02:03' };
+		const changed = await stage([shifted]);
+		const correction = await review({ stageId: changed.stageId, rows: [{ line: 2, correction: { mode: 'update', entryId: root.entryId, revision: 1 } }] });
+		const correctionBatch = parseClockifyImportCommitResponse((await commit(correction.previewToken)).json()).batchId!;
+		const beforeKeep = await undoPreview(correctionBatch);
+		expect(beforeKeep).toMatchObject({ canUndo: true, revertCount: 1, releaseAliasCount: 1 });
+		now = new Date(now.getTime() + 1_000);
+		const incoming = await stage([{ ...shifted, Task: 'Further metadata' }]);
+		const kept = await review({ stageId: incoming.stageId, rows: [{ line: 2, correction: { mode: 'keep', entryId: root.entryId, revision: 2 } }] });
+		const keepBatch = parseClockifyImportCommitResponse((await commit(kept.previewToken)).json()).batchId!;
+		expect((await undoPreview(correctionBatch)).issues).toContain('dependent-correction');
+		expect((await undoPreview(original)).issues).toContain('dependent-correction');
+		expect((await applyUndo(correctionBatch, beforeKeep.previewHash)).statusCode).toBe(409);
+		const undoKeep = await undoPreview(keepBatch);
+		expect(undoKeep).toMatchObject({ canUndo: true, trashCount: 0, revertCount: 0, releaseAliasCount: 1 });
+		expect((await applyUndo(keepBatch, undoKeep.previewHash)).statusCode).toBe(200);
+		const undoCorrection = await undoPreview(correctionBatch);
+		expect(undoCorrection.entries[0]).toMatchObject({ action: 'revert', restore: { description: source.Description, durationSeconds: 3723, amountOre: '82734' } });
+		expect((await applyUndo(correctionBatch, undoCorrection.previewHash)).statusCode).toBe(200);
+		expect(await database.entryDayAllocation.findFirstOrThrow({ where: { entryId: root.entryId } })).toMatchObject({
+			seconds: 3723, amountOre: 82734n, calculationVersion: 5,
+		});
+		expect((await undoPreview(original)).issues).toContain('entry-changed');
+		expect(await database.clockifyImportAlias.count()).toBe(0);
+	});
+
+	it('shows both intervals when undoing a same-day equal-duration correction', async () => {
+		await importRows([{}]);
+		const { entryId } = await database.clockifyImportIdentity.findFirstOrThrow();
+		now = new Date(now.getTime() + 1_000);
+		const shifted = await stage([{ 'Start Time': '10:04:05', 'End Time': '11:06:08' }]);
+		const correction = await review({
+			stageId: shifted.stageId, rows: [{ line: 2, correction: { mode: 'update', entryId, revision: 1 } }],
+		});
+		const response = await commit(correction.previewToken);
+		expect(response.statusCode, response.body).toBe(200);
+		const { batchId } = parseClockifyImportCommitResponse(response.json());
+		const preview = await undoPreview(batchId!);
+		expect(preview.entries).toEqual([{
+			id: entryId, action: 'revert', description: source.Description, localDate: '2024-02-29', durationSeconds: 3723, amountOre: '82734',
+			startAt: '2024-02-29T09:04:05.000Z', endAt: '2024-02-29T10:06:08.000Z', invoicedAt: null,
+			restore: {
+				description: source.Description, localDate: '2024-02-29', durationSeconds: 3723, amountOre: '82734',
+				startAt: '2024-02-29T07:04:05.000Z', endAt: '2024-02-29T08:06:08.000Z',
+			},
+			issues: [],
+		}]);
+	});
+
+	it('rolls back a multi-entry undo failure and safely retries the same confirmation', async () => {
+		const batchId = await importRows(sampleRows().slice(0, 3));
+		const approved = await undoPreview(batchId);
+		await database.$executeRaw`CREATE TRIGGER "test_clockify_undo_fail" BEFORE INSERT ON "ClockifyReleasedIdentity"
+			WHEN (SELECT COUNT(*) FROM "ClockifyReleasedIdentity") > 0 BEGIN SELECT RAISE(ABORT, 'Test undo failure'); END`;
+		const key = randomUUID();
+		try {
+			expect((await applyUndo(batchId, approved.previewHash, key)).statusCode).toBe(500);
+			expect(await database.entry.count({ where: { deletedAt: null, invoicedAt: now } })).toBe(3);
+			expect(await database.clockifyImportIdentity.count()).toBe(3);
+			expect(await database.clockifyReleasedIdentity.count()).toBe(0);
+			expect(await database.entryHistory.count({ where: { action: 'clockify-undo' } })).toBe(0);
+			expect(await database.clockifyImportBatch.count({ where: { undoneAt: null } })).toBe(1);
+		} finally {
+			await database.$executeRaw`DROP TRIGGER "test_clockify_undo_fail"`;
+		}
+		expect((await applyUndo(batchId, approved.previewHash, key)).statusCode).toBe(200);
+		expect(await database.entry.count({ where: { deletedAt: null } })).toBe(0);
+	});
+
+	it('previews and undoes a batch above SQLite relation bind limits', async () => {
+		const size = 1_101;
+		const records = Array.from({ length: size }, (_, index) => {
+			const start = new Date(Date.UTC(2026, 0, 1, 8, 0, index * 2));
+			const end = new Date(start.getTime() + 1_000);
+			return { Description: 'Synthetic undo ' + index, 'Start Date': '01/01/2026', 'End Date': '01/01/2026',
+				'Start Time': start.toISOString().slice(11, 19), 'End Time': end.toISOString().slice(11, 19), 'Duration (h)': '00:00:01' };
+		});
+		const batchId = await importRows(records, { billing: { mode: 'non-billable' }, association: noAssociation });
+		const approved = await undoPreview(batchId);
+		expect(approved).toMatchObject({ canUndo: true, trashCount: size, releaseIdentityCount: size });
+		expect(new Set(approved.entries.map(({ id }) => id)).size).toBe(size);
+		const undone = await applyUndo(batchId, approved.previewHash);
+		expect(undone.statusCode, undone.body).toBe(200);
+		expect(undone.json()).toMatchObject({ trashedCount: size, releasedIdentityCount: size });
+		expect(await database.clockifyReleasedIdentity.count()).toBe(size);
+		expect(await database.entry.count({ where: { deletedAt: null } })).toBe(0);
+	}, 15_000);
 
 	it('enforces owner scope, stage expiry and durable replay after pruning a consumed stage', async () => {
 		const staged = await stage([{}]);

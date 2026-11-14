@@ -6,7 +6,7 @@ import { authError, postAuth, SessionContext, useReplaceSession, useSession, use
 import { Home } from './home';
 import { Login } from './login';
 import { Password } from './password';
-import { writePendingClockifyImport } from './clockify-import-pending';
+import { writePendingClockifyImport, writePendingClockifyUndo } from './clockify-import-pending';
 import { writeBulkOperation } from './bulk-operation';
 import { writeTimerOperation } from './timer-operation';
 import { writeReportPdf } from './report-pdf-state';
@@ -30,6 +30,7 @@ function SignOut() {
 					writeTimerOperation(session.account.email, null);
 					writeBulkOperation(session.account.email, null);
 					writePendingClockifyImport(session.account.email, null);
+					writePendingClockifyUndo(session.account.email, null);
 					writeReportPdf(session.account.email, null);
 				}
 				await replaceSession(undefined);
@@ -176,6 +177,13 @@ const clockifyRoute = createRoute({
 	component: lazyRouteComponent(() => import('./clockify-inspection'), 'ClockifyInspection'),
 });
 
+const clockifyHistoryRoute = createRoute({
+	getParentRoute: () => protectedRoute,
+	path: '/imports/clockify/history',
+	validateSearch: validateWorkListLocation,
+	component: lazyRouteComponent(() => import('./clockify-history'), 'ClockifyHistory'),
+});
+
 export const router = createRouter({
 	parseSearch: (search) => Object.fromEntries(new URLSearchParams(search)),
 	stringifySearch: (search) => {
@@ -188,7 +196,7 @@ export const router = createRouter({
 	},
 	routeTree: rootRoute.addChildren([
 		loginRoute,
-		protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute, entriesRoute, entryDetailRoute, entryTrashRoute, reportPreviewRoute, reportSettingsRoute, clockifyRoute]),
+		protectedRoute.addChildren([homeRoute, passwordRoute, clientsRoute, projectsRoute, entriesRoute, entryDetailRoute, entryTrashRoute, reportPreviewRoute, reportSettingsRoute, clockifyRoute, clockifyHistoryRoute]),
 	]),
 });
 

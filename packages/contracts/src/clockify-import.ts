@@ -266,3 +266,93 @@ export function parseClockifyCorrectionTargetsResponse(value: unknown): Clockify
 	if (!Value.Check(ClockifyCorrectionTargetsResponse, value)) throw new Error('Invalid Clockify correction targets');
 	return value;
 }
+
+export const clockifyBatchesPath = '/api/v1/imports/clockify/batches';
+export const ClockifyImportBatchParams = Type.Object({ id: Uuid }, strict);
+export const ClockifyImportBatchListQuery = Type.Object({ cursor: Type.Optional(Uuid) }, strict);
+export const ClockifyImportBatchSummary = Type.Object({
+	id: Uuid,
+	committedAt: Text,
+	undoneAt: nullableText,
+	sourceTimeZone: TimeZone,
+	createdCount: Count,
+	updatedExistingCount: Count,
+	keptExistingCount: Count,
+	alreadyImportedCount: Count,
+	excludedCount: Count,
+	incompleteCount: Count,
+	invoicedCount: Count,
+	duplicateOmittedCount: Count,
+}, strict);
+export const ClockifyImportBatchListResponse = Type.Object({
+	batches: Type.Array(ClockifyImportBatchSummary, { maxItems: 20 }),
+	nextCursor: NullableUuid,
+}, strict);
+
+export const ClockifyUndoIssue = Type.Union([
+	Type.Literal('already-undone'), Type.Literal('entry-changed'), Type.Literal('entry-invoiced-later'),
+	Type.Literal('entry-deleted'), Type.Literal('entry-split'), Type.Literal('dependent-correction'), Type.Literal('history-unavailable'),
+]);
+const undoEntryWork = {
+	description: Text,
+	localDate: Text,
+	startAt: nullableText,
+	endAt: nullableText,
+	durationSeconds: Count,
+	amountOre: NullableHourlyRate,
+};
+export const ClockifyUndoEntry = Type.Object({
+	id: Uuid,
+	action: Type.Union([Type.Literal('trash'), Type.Literal('revert')]),
+	...undoEntryWork,
+	invoicedAt: nullableText,
+	restore: Type.Union([Type.Null(), Type.Object(undoEntryWork, strict)]),
+	issues: Type.Array(ClockifyUndoIssue),
+}, strict);
+export const ClockifyUndoPreviewResponse = Type.Object({
+	batch: ClockifyImportBatchSummary,
+	canUndo: Type.Boolean(),
+	previewHash: Type.Union([Sha256, Type.Null()]),
+	trashCount: Count,
+	revertCount: Count,
+	releaseIdentityCount: Count,
+	releaseAliasCount: Count,
+	entries: Type.Array(ClockifyUndoEntry, { maxItems: maxClockifyRows }),
+	issues: Type.Array(ClockifyUndoIssue),
+}, strict);
+
+export const ClockifyUndoCommitBody = Type.Object({ previewHash: Sha256 }, strict);
+export const ClockifyUndoCommitResponse = Type.Object({
+	batchId: Uuid,
+	undoneAt: Text,
+	serverNow: Text,
+	trashedCount: Count,
+	revertedCount: Count,
+	releasedIdentityCount: Count,
+	releasedAliasCount: Count,
+}, strict);
+
+export type ClockifyImportBatchParams = Static<typeof ClockifyImportBatchParams>;
+export type ClockifyImportBatchListQuery = Static<typeof ClockifyImportBatchListQuery>;
+export type ClockifyImportBatchSummary = Static<typeof ClockifyImportBatchSummary>;
+export type ClockifyImportBatchListResponse = Static<typeof ClockifyImportBatchListResponse>;
+export type ClockifyUndoIssue = Static<typeof ClockifyUndoIssue>;
+export type ClockifyUndoEntry = Static<typeof ClockifyUndoEntry>;
+export type ClockifyUndoPreviewResponse = Static<typeof ClockifyUndoPreviewResponse>;
+export type ClockifyUndoCommitBody = Static<typeof ClockifyUndoCommitBody>;
+export type ClockifyUndoCommitResponse = Static<typeof ClockifyUndoCommitResponse>;
+
+export function parseClockifyImportBatchListResponse(value: unknown): ClockifyImportBatchListResponse {
+	if (!Value.Check(ClockifyImportBatchListResponse, value)) throw new Error('Invalid Clockify import batches');
+	return value;
+}
+
+export function parseClockifyUndoPreviewResponse(value: unknown): ClockifyUndoPreviewResponse {
+	if (!Value.Check(ClockifyUndoPreviewResponse, value)) throw new Error('Invalid Clockify undo preview');
+	return value;
+}
+
+export function parseClockifyUndoCommitResponse(value: unknown): ClockifyUndoCommitResponse {
+	if (!Value.Check(ClockifyUndoCommitResponse, value)) throw new Error('Invalid Clockify undo result');
+	return value;
+}

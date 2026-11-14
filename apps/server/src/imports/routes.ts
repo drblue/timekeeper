@@ -1,5 +1,6 @@
 import {
-	ApiErrorResponse, ClockifyImportCommitBody, ClockifyImportCommitResponse, ClockifyImportReviewBody, ClockifyImportReviewResponse,
+	ApiErrorResponse, ClockifyImportBatchListQuery, ClockifyImportBatchListResponse, ClockifyImportBatchParams,
+	ClockifyUndoCommitBody, ClockifyUndoCommitResponse, ClockifyUndoPreviewResponse, clockifyBatchesPath, ClockifyImportCommitBody, ClockifyImportCommitResponse, ClockifyImportReviewBody, ClockifyImportReviewResponse,
 	ClockifyCorrectionTargetsQuery, ClockifyCorrectionTargetsResponse, ClockifyPreviewQuery, ClockifyPreviewResponse, ClockifyStageResponse, TimerIdempotencyHeaders,
 	clockifyCommitPath, clockifyCorrectionTargetsPath, clockifyPreviewPath, clockifyReviewPath, clockifyStagePath, idempotencyKeyHeader, maxClockifyCsvBytes,
 } from '@timekeeper/contracts';
@@ -41,6 +42,25 @@ export async function registerClockifyImport(app: FastifyInstance, store?: Retur
 			schema: { operationId: 'findClockifyCorrectionTargets', querystring: ClockifyCorrectionTargetsQuery,
 				response: { 200: ClockifyCorrectionTargetsResponse, ...errors } },
 		}, (request) => store.correctionTargets(request.accountSession!.accountId, request.query));
+
+		clockify.get<{ Querystring: ClockifyImportBatchListQuery }>(clockifyBatchesPath, {
+			schema: { operationId: 'listClockifyImportBatches', querystring: ClockifyImportBatchListQuery,
+				response: { 200: ClockifyImportBatchListResponse, ...errors } },
+		}, (request) => store.listBatches(request.accountSession!.accountId, request.query));
+
+		clockify.get<{ Params: ClockifyImportBatchParams }>(`${clockifyBatchesPath}/:id/undo-preview`, {
+			schema: { operationId: 'previewClockifyUndo', params: ClockifyImportBatchParams,
+				response: { 200: ClockifyUndoPreviewResponse, ...errors } },
+		}, (request) => store.previewUndo(request.accountSession!.accountId, request.params.id));
+
+		clockify.post<{ Params: ClockifyImportBatchParams; Body: ClockifyUndoCommitBody; Headers: TimerIdempotencyHeaders }>(
+			`${clockifyBatchesPath}/:id/undo`, {
+				bodyLimit: 2_048,
+				schema: { operationId: 'undoClockifyImport', params: ClockifyImportBatchParams, headers: TimerIdempotencyHeaders,
+					body: ClockifyUndoCommitBody, response: { 200: ClockifyUndoCommitResponse, ...errors } },
+			}, (request) => store.undo(request.accountSession!.accountId, request.params.id, request.body.previewHash,
+				request.headers[idempotencyKeyHeader]),
+		);
 
 		clockify.post<{ Body: ClockifyImportReviewBody }>(clockifyReviewPath, {
 			bodyLimit: maxClockifyReviewBytes,

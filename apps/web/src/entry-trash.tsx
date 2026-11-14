@@ -81,6 +81,7 @@ export function EntryTrash() {
 											<time dateTime={entry.localDate}>{entry.localDate}</time>
 											<span>{formatDuration(entry.durationSeconds)}</span>
 											<span>{entry.billableAmountOre === null ? 'Incomplete' : formatSek(entry.billableAmountOre)}</span>
+											{entry.invoicedAt ? <span>Invoiced</span> : null}
 										</p>
 										{association ? <p>{association}</p> : null}
 										<p className="field-hint">Moved to Trash <StockholmTime instant={deletedAt} /></p>

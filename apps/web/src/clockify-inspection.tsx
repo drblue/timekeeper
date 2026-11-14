@@ -150,12 +150,16 @@ export function ClockifyInspection() {
 							setPreparingImport(false);
 							requestAnimationFrame(() => (resultHeading.current ?? heading.current)?.focus());
 						}} />
-					{!pendingImport ? <div><Link to="/entries" search={search} state={{ clockifyInspectionReturned: true }}>Back to time entries</Link></div> : null}
+					{!pendingImport ? <div className="form-actions">
+						<Link to="/entries" search={search} state={{ clockifyInspectionReturned: true }}>Back to time entries</Link>
+						<Link to="/imports/clockify/history" search={search}>Import history</Link>
+					</div> : null}
 				</section>
 			) : null}
 			<section className="entry-page clockify-page" aria-labelledby="clockify-heading" hidden={preparingImport || !!pendingImport}>
 				<h1 id="clockify-heading" className="entry-heading" tabIndex={-1} ref={heading}>Inspect Clockify export</h1>
 				<p className="field-hint">Review time entries from a Clockify Detailed report CSV before importing them.</p>
+				<div><Link to="/imports/clockify/history" search={search}>Import history</Link></div>
 				<form className="panel record-editor" onSubmit={(event) => void inspect(event)} aria-busy={busy}>
 					<div className="field">
 						<label htmlFor="clockify-file">Clockify CSV file</label>

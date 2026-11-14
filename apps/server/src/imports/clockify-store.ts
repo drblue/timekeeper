@@ -10,6 +10,7 @@ import { createClockifyAssociations } from './clockify-association.ts';
 import { clockifyHash } from './clockify-identity.ts';
 import { correctionSnapshot, loadClockifyCorrectionEntry, prepareClockifyCorrection, searchClockifyCorrectionTargets } from './clockify-corrections.ts';
 import { clockifyEntryTime, planClockifyImport } from './clockify-plan.ts';
+import { createClockifyUndo } from './clockify-undo.ts';
 import { previewClockify } from './clockify-preview.ts';
 
 const stageLifetime = 30 * 60 * 1_000;
@@ -36,6 +37,7 @@ function readInspection(snapshot: string) {
 
 export function createClockifyImportStore(database: PrismaClient, now: () => Date = () => new Date()) {
 	return {
+		...createClockifyUndo(database, now),
 		correctionTargets(accountId: string, query: ClockifyCorrectionTargetsQuery) {
 			return database.$transaction((transaction) => searchClockifyCorrectionTargets(transaction, accountId, query));
 		},

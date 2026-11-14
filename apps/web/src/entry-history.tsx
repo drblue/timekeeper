@@ -20,6 +20,7 @@ const historyActionLabels = {
 	'invoice-metadata-updated': 'Updated invoice details',
 	split: 'Split for invoicing',
 	'created-from-split': 'Created from split',
+	'clockify-undo': 'Clockify import undone',
 } as const;
 
 interface HistoryValue {

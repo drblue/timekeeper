@@ -208,7 +208,7 @@ export async function createApp({ webRoot, logger = false, auth, catalog, entrie
 				immutable: true,
 			});
 
-			for (const path of ['/', '/login', '/password', '/clients', '/projects', '/entries', '/entries/trash', '/entries/:entryId', '/reports/preview', '/settings/report', '/imports/clockify']) {
+			for (const path of ['/', '/login', '/password', '/clients', '/projects', '/entries', '/entries/trash', '/entries/:entryId', '/reports/preview', '/settings/report', '/imports/clockify', '/imports/clockify/history']) {
 				web.get(path, { schema: { hide: true } }, (_request, reply) => {
 					return reply.header('Cache-Control', 'no-cache').sendFile('index.html', webRoot, { cacheControl: false });
 				});

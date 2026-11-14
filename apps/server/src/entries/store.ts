@@ -13,6 +13,7 @@ import { createWorkList } from './work-list.ts';
 import { activeEntryWhere, checkEntryRevision, entryBilling, entryRelations, entryResponse, requireCompleteAmount } from './entry-record.ts';
 import type { EntryWithRelations } from './entry-record.ts';
 import { readHistorySnapshot, recordHistory } from './entry-history.ts';
+import { reclaimRestoredClockifyIdentity } from '../imports/clockify-identity.ts';
 import { validLocalDate } from '../local-date.ts';
 import { createEntryInvoiceStore } from './invoicing.ts';
 import { createBulkEntryStore } from './bulk.ts';
@@ -213,6 +214,7 @@ export function createEntryStore(database: PrismaClient, now: () => Date = () =>
 				if (restoredAt.getTime() >= current.deletedAt.getTime() + trashRetentionMs) {
 					throw new ApiRequestError(409, 'ENTRY_RESTORE_EXPIRED', 'The 30-day restore period has ended.');
 				}
+				await reclaimRestoredClockifyIdentity(transaction, accountId, id, revision + 1);
 				return changeEntryDeletion(transaction, current, null, restoredAt);
 			});
 		},

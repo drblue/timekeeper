@@ -27,3 +27,33 @@ export function writePendingClockifyImport(account: string, pending: PendingImpo
 }
 
 export type { PendingImport };
+
+export interface PendingUndo {
+	batchId: string;
+	previewHash: string;
+	key: string;
+}
+
+const undoStorageKey = 'timekeeper.clockify-undo';
+
+export function readPendingClockifyUndo(account: string): PendingUndo | null {
+	try {
+		const raw = sessionStorage.getItem(undoStorageKey);
+		if (!raw) return null;
+		const { owner, pending } = JSON.parse(raw);
+		if (owner !== account || typeof pending?.key !== 'string' || typeof pending.batchId !== 'string' ||
+			typeof pending.previewHash !== 'string') return null;
+		return pending;
+	} catch {
+		return null;
+	}
+}
+
+export function writePendingClockifyUndo(account: string, pending: PendingUndo | null) {
+	try {
+		if (pending) sessionStorage.setItem(undoStorageKey, JSON.stringify({ owner: account, pending }));
+		else if (readPendingClockifyUndo(account)) sessionStorage.removeItem(undoStorageKey);
+	} catch {
+		// The request can still be retried in the current visit.
+	}
+}
