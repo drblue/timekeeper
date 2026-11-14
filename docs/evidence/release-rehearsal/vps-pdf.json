@@ -1,0 +1,80 @@
+[
+  {
+    "fixture": "monthly",
+    "attempt": 1,
+    "acceptedMs": 13.3,
+    "readyMs": 438.4,
+    "downloadedMs": 446.7,
+    "bytes": 21307,
+    "sha256": "7a7049260816a55b75edacc0b7b5bb55f93c2df0f0edc0d590789b61b7f58c7c",
+    "healthProbes": 5,
+    "maxHealthMs": 5.2,
+    "entryProbes": 1,
+    "maxEntryMs": 35.1
+  },
+  {
+    "fixture": "monthly",
+    "attempt": 2,
+    "acceptedMs": 14.6,
+    "readyMs": 444.3,
+    "downloadedMs": 452.1,
+    "bytes": 21307,
+    "sha256": "82d2203a11322f4d8aecc12258df1afce02fe14eb884aba2d0fc5b37f141830d",
+    "healthProbes": 5,
+    "maxHealthMs": 25.9,
+    "entryProbes": 1,
+    "maxEntryMs": 10.7
+  },
+  {
+    "fixture": "monthly",
+    "attempt": 3,
+    "acceptedMs": 16.4,
+    "readyMs": 445.9,
+    "downloadedMs": 450.2,
+    "bytes": 21307,
+    "sha256": "bdd8f310373f2a06079e2fa45ed18f29ed35cf948e6aa4d8602d778e9950b0d7",
+    "healthProbes": 5,
+    "maxHealthMs": 10.4,
+    "entryProbes": 1,
+    "maxEntryMs": 33.2
+  },
+  {
+    "fixture": "annual",
+    "attempt": 1,
+    "acceptedMs": 118.5,
+    "readyMs": 2115.3,
+    "downloadedMs": 2129.1,
+    "bytes": 721450,
+    "sha256": "731db7d0806153fac81b7659479c4e9952ab4720d50cce62412ac9bfa8894d97",
+    "healthProbes": 19,
+    "maxHealthMs": 134.1,
+    "entryProbes": 4,
+    "maxEntryMs": 139.5
+  },
+  {
+    "fixture": "annual",
+    "attempt": 2,
+    "acceptedMs": 200.6,
+    "readyMs": 2328.1,
+    "downloadedMs": 2345.9,
+    "bytes": 721450,
+    "sha256": "c5cfd343a2bdaae5a4b593b3d8da68e44a3efc136d31ce86e28505ac78fb1212",
+    "healthProbes": 20,
+    "maxHealthMs": 11.8,
+    "entryProbes": 4,
+    "maxEntryMs": 340.6
+  },
+  {
+    "fixture": "annual",
+    "attempt": 3,
+    "acceptedMs": 123.4,
+    "readyMs": 2224.6,
+    "downloadedMs": 2240.9,
+    "bytes": 721450,
+    "sha256": "d3fe6e4a7300e4a0c6e35fb14eaa70cd9e8ffdb694f9ec2c0409c23360f20c3b",
+    "healthProbes": 20,
+    "maxHealthMs": 23.5,
+    "entryProbes": 4,
+    "maxEntryMs": 225.0
+  }
+]

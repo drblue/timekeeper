@@ -1,0 +1,80 @@
+[
+  {
+    "fixture": "monthly",
+    "attempt": 1,
+    "acceptedMs": 99.1,
+    "readyMs": 3624.7,
+    "downloadedMs": 3684.8,
+    "bytes": 21308,
+    "sha256": "d92a243402427eecf165c9f56f6c78298124535e08d318939336e0cc30af1e50",
+    "healthProbes": 24,
+    "maxHealthMs": 158.3,
+    "entryProbes": 4,
+    "maxEntryMs": 139.7
+  },
+  {
+    "fixture": "monthly",
+    "attempt": 2,
+    "acceptedMs": 164.8,
+    "readyMs": 3554.1,
+    "downloadedMs": 3610.7,
+    "bytes": 21308,
+    "sha256": "5d74d5adee81ad3833137e76dc3a60af55398735a093a92634862be8615a7e22",
+    "healthProbes": 24,
+    "maxHealthMs": 88.5,
+    "entryProbes": 4,
+    "maxEntryMs": 260.6
+  },
+  {
+    "fixture": "monthly",
+    "attempt": 3,
+    "acceptedMs": 134.1,
+    "readyMs": 4013.0,
+    "downloadedMs": 4046.0,
+    "bytes": 21308,
+    "sha256": "18c30110226d0dae7806faa895fa37780ca1d1448405e0a4e51e95cedbe66750",
+    "healthProbes": 26,
+    "maxHealthMs": 98.4,
+    "entryProbes": 5,
+    "maxEntryMs": 198.9
+  },
+  {
+    "fixture": "annual",
+    "attempt": 1,
+    "acceptedMs": 1032.4,
+    "readyMs": 23699.7,
+    "downloadedMs": 23822.0,
+    "bytes": 722975,
+    "sha256": "e24308d1db33b590e990344b14111eb35d3ee04e6660cce9d2a2b6dadb9d4b82",
+    "healthProbes": 84,
+    "maxHealthMs": 1172.5,
+    "entryProbes": 14,
+    "maxEntryMs": 1053.4
+  },
+  {
+    "fixture": "annual",
+    "attempt": 2,
+    "acceptedMs": 1300.3,
+    "readyMs": 25756.7,
+    "downloadedMs": 25941.5,
+    "bytes": 722975,
+    "sha256": "4338646b05fd990da274f7f41f946100c8e820090d69aee758643ce6f856e462",
+    "healthProbes": 88,
+    "maxHealthMs": 123.9,
+    "entryProbes": 15,
+    "maxEntryMs": 2097.6
+  },
+  {
+    "fixture": "annual",
+    "attempt": 3,
+    "acceptedMs": 1560.4,
+    "readyMs": 24776.5,
+    "downloadedMs": 24935.8,
+    "bytes": 722975,
+    "sha256": "98aeb9dd06284320bcc5d00ecc0788633f32e048a64b4489fe317dafed059904",
+    "healthProbes": 85,
+    "maxHealthMs": 111.7,
+    "entryProbes": 15,
+    "maxEntryMs": 2733.5
+  }
+]

@@ -1,0 +1,73 @@
+# Initial release rehearsal
+
+Evidence index for [issue #30](https://github.com/drblue/timekeeper/issues/30) and [acceptance scenarios A01–A22](specification.md#12-acceptance-scenarios). The release candidate is `a6f9bbfed29c5b612274f54220f4a687140762f5`. Earlier measurements and drills apply to the revisions listed with them. Production setup remains open.
+
+## Acceptance evidence
+
+Browser tests use Chromium at 1280 and 390 px against the built application with disposable data unless noted. Server tests exercise the production handlers and SQLite with controlled time and fault injection where needed. Source links identify the checks to rerun on the release revision.
+
+| ID | Evidence | Scope or remaining check |
+| --- | --- | --- |
+| A01 | [Timer server test](../apps/server/test/timer.test.ts#L135) reopens the same timer after restart and verifies elapsed work. [Two-tab browser test](../tests/entries.spec.ts#L331) observes server-confirmed timer state, then retries a lost stop response. [#8 handoff](hand-offs/issue-8-implementation.md) records both probes. | Integrated Chrome 157 drill closed the desktop browser and stopped the server process. A freshly launched phone-sized client signed in after restart, recovered the same timer and saved exactly one four-second entry. |
+| A02 | [Concurrent starts](../apps/server/test/timer.test.ts#L163) admit one timer and return the original result on identical retry. | Parallel requests against one SQLite instance. |
+| A03 | [Incomplete completion](../apps/server/test/timer.test.ts#L216) preserves elapsed time with no allocation or amount and checks revision conflicts. [Browser recovery](../tests/entries.spec.ts#L331), [report exclusion](../apps/server/test/entries.test.ts#L1042), and [invoice eligibility](../apps/server/test/entries.test.ts#L825) cover the downstream behavior. | Browser includes a simulated zero-second detail response for input focus. Save and retry use the real server. |
+| A04 | [Manual duration](../tests/entries.spec.ts#L38) saves 5,400 seconds and the selected date as duration-only. | Exact stored values and rendered entry detail. |
+| A05 | [Client default change](../tests/entries.spec.ts#L38) verifies 800 SEK/hour remains on the original entry and 900 SEK/hour applies to newly saved work. | Exact rates and amounts from saved entries. |
+| A06 | [Continue work](../tests/timer-transitions.spec.ts#L62) tests the saved 800 SEK/hour snapshot and explicit current 900 SEK/hour choice. [Server continuation](../apps/server/test/timer.test.ts#L358) verifies both resulting timers and saved work. | Desktop and phone UI plus API state. |
+| A07 | [Overnight entry](../tests/entries.spec.ts#L181) and [filtered work list](../tests/work-list.spec.ts#L18) verify midnight portions. [Report parity](../apps/server/test/entries.test.ts#L1042) confirms a single in-range day contributes its stored allocation only. | Exact seconds and öre from persisted allocations. |
+| A08 | [DST elapsed time](../apps/server/test/entries.test.ts#L447) covers spring and autumn. [Browser repeated time](../tests/entries.spec.ts#L292) requests a fold occurrence before saving. | Controlled Stockholm time inputs. |
+| A09 | [Overnight split](../tests/entry-bulk.spec.ts#L202) and [server lineage](../apps/server/test/entries.test.ts#L956) conserve seconds and one öre while leaving outside-range work uninvoiced. [DST split](../apps/server/test/entries.test.ts#L1009) checks both transitions and rollback. | Exact persisted conservation and explicit confirmation. |
+| A10 | [Combined filters](../apps/server/test/entries.test.ts#L646) verify selection and pagination. [Report parity](../apps/server/test/entries.test.ts#L1042) checks matching list/report totals with client, project, date, invoice and literal search. [Browser report](../tests/report-preview.spec.ts#L27) verifies inherited scope and return. | Production handlers and browser navigation. |
+| A11 | [Invoice browser flow](../tests/entry-invoice.spec.ts#L17) corrects text with leading zeros while work is locked, then unmarks explicitly. [Server lock](../apps/server/test/entries.test.ts#L602) rejects work changes while invoiced. | Browser and direct API. |
+| A12 | [Catalog lifecycle](../apps/server/test/catalog.test.ts#L145) archives and renames a project while retaining its ID. [Historical names and rates](../apps/server/test/entries.test.ts#L228) and [historical project filtering](../tests/work-list.spec.ts#L18) cover recorded work. | Integrated phone-sized walkthrough retained the renamed project ID after archiving. The report showed the new name, 30 minutes and 400,00 SEK. New time entry omitted the archived project and offered an active control. |
+| A13 | [Browser reports](../tests/report-preview.spec.ts#L89) verify 100%, complete multi-project legend and honest empty state. [Renderer fixture inspection](pdf-renderer-comparison.md) covers empty, single-project, dense, long description and annual layouts. [Production PDF run](pdf-production-verification.md) inspects monthly and annual output on both hosts. | The integrated production reports passed visual inspection for the single-project and empty states, the dense legend and wrapped descriptions, and the annual month panels and final detail page. See the native results below. |
+| A14 | [Report grouping](../apps/server/test/entries.test.ts#L1076) distinguishes IDs and case, and separates saved rates when money is shown. [Browser report](../tests/report-preview.spec.ts#L89) verifies same-named project groups stay distinguishable. | Exact grouping and visible labels. |
+| A15 | [29-row import](../apps/server/test/clockify-import.test.ts#L325) approves mappings/rates, creates 29 entries and 12 invoice marks, and skips the repeat. [Browser import](../tests/clockify-inspection.spec.ts#L114) covers mapping, file selection and retry. [#20 handoff](hand-offs/issue-20-implementation.md) records independent checks. | Synthetic sample-shaped export. A raw owner export is not included. |
+| A16 | [Edited and ordinarily deleted import](../apps/server/test/clockify-import.test.ts#L325) keeps the source claim and tombstone through repeat import. [Split lineage](../apps/server/test/clockify-import.test.ts#L378) verifies the same protection after splitting. | SQLite fixture with an ordinary deletion. |
+| A17 | [Correction server tests](../apps/server/test/clockify-import.test.ts#L586) preserve local billing and allocations and compare against the latest accepted source. [Correction browser](../tests/clockify-corrections.spec.ts#L36) verifies explicit choices, locked invoice handling and alias recognition. | Synthetic input and local saved edits. |
+| A18 | [Identical source pair](../apps/server/test/clockify-import.test.ts#L431) accepts two exact occurrences only after approval. [Browser multiplicity](../tests/clockify-duplicates.spec.ts#L6) verifies default, approval, cancellation and overlapping repeat. | Distinct occurrence claims survive reimport. |
+| A19 | [Import rollback](../apps/server/test/clockify-import.test.ts#L541) injects an application failure and verifies atomic rollback before retry and concurrent commit. | Controlled fault injection. |
+| A20 | [Undo and reimport tests](../apps/server/test/clockify-import.test.ts#L808) check claim release, exact reversal, invoice retention and stale blockers. [Mixed undo browser](../tests/clockify-undo.spec.ts#L26) checks trash/revert, cancel, lost-receipt recovery, same-day timing and duplicate-restore protection. [#23 handoff](hand-offs/issue-23-implementation.md) records independent verification. | Synthetic populated SQLite and browser flows. |
+| A21 | [Stale edit browser](../tests/entry-corrections.spec.ts#L109) retains the stale draft for explicit refresh and review. | Another request changes the saved revision before the browser attempts to save. |
+| A22 | [Encrypted Pi-to-VPS recovery](backup-restore-verification.md) restores the populated SQLite fixture and verifies 14 table comparisons, exact totals, work history, invoice metadata, branding and repeat-import behavior. | Exact backup implementation `de98546`; application recovery through HTTPS on the VPS. The two-host drill used staging and a disposable identity. Production mount and key recovery are open. |
+
+## Platform and failure evidence
+
+- **Integrated checks.** Independent `npm run check` passed type checking, the production build, 114 server tests, and 78 browser tests. One host test requires age. It was exercised separately with the pinned age binary and a real Docker snapshot and restore. The first combined run had one transient login route 404 during overlapping build activity. The isolated rerun passed all browser tests, including compact time input and successful/expired PDF downloads at both widths. The latter uses a real success response and an injected 410 at the stale link. Back restores the report and its previous scope.
+- **Browser and installation.** [#25 handoff](hand-offs/issue-25-implementation.md) records desktop and 320/390 px Chromium tests of login, timer, switch, manual entry and offline draft recovery at `0945d32`. Actual installation and launch in standalone mode were observed in Chrome 157.0.8103.78 on macOS. Phone-sized interactions were emulated. A physical phone installation remains unverified.
+- **Authentication and retry.** [Auth server tests](../apps/server/test/auth.test.ts) cover session ownership, exact origin and CSRF, forwarded-address trust and login throttling. [Browser auth](../tests/auth.spec.ts) verifies protected navigation, password change and sign-out. [Installed workspace tests](../tests/installable-workspace.spec.ts) verify definitive session rejection clears private state even if a subsequent check fails, and a transport disconnect retains an open draft. [Timer](../tests/entries.spec.ts#L331), [import](../tests/clockify-inspection.spec.ts#L114), [undo](../tests/clockify-undo.spec.ts#L26) and [bulk](../tests/entry-bulk.spec.ts#L85) tests simulate a lost response and recover the original operation. [PDF status tests](../tests/report-preview.spec.ts#L274) cover status and terminal retry while preserving original filters.
+
+## Final native rehearsal
+
+Both hosts used an isolated HTTPS origin and a test certificate. The native runtime rejected an unmigrated database, then started after applying all 16 migrations. A saved entry with 3,600 seconds and 80,000 öre survived restart and forced replacement. An authenticated PDF and portable archive downloaded after replacement. A separate populated database upgraded from 0015 to 0016 and reached readiness. IDs, revisions, invoice and Trash state, tracked row counts, and three allocations totaling 121 seconds and 170 öre matched before and after. [Earlier deployment procedure and evidence](native-compose-verification.md)
+
+Both hosts verified 379 archived files against the final source manifest SHA-256 `e067e90664df26999a6adc4db8098878909a0d05820a03df777d88c6187ed708`. Each ran Linux Node 24.19.0 on its native architecture.
+
+The final PDF run used the production API through the test HTTPS proxy. It submitted, polled and downloaded three jobs per fixture on each host, with parallel liveness and authenticated work-list probes. The monthly scope contained 36 entries, 21,510 seconds and 521,276 öre. The annual scope contained 3,201 entries, including the deployment smoke entry, totaling 12,110,000 seconds and 290,123,379 öre. Preview and rendered totals matched independently calculated values. Page size, numbering and SHA-256 checks passed across all jobs. Sampled page images confirmed legible bars and scales, the right-hand legend and its continuation, wrapped descriptions and the final appendix. Synthetic empty and single-project reports each rendered four A4 pages. The empty cover displayed zero time and an empty state. The single-project cover showed 1:30:00, 1 200,00 SEK and a full 100% pie with its right-hand legend.
+
+| Host | Runtime image ID | Migration image ID |
+| --- | --- | --- |
+| Pi 4 ARM64 | `3bec13e2ec4646fd0af39c3214c1c609758707ccb1abfdc4a2340f6e4eabb628` | `92bd3f3bf56960575299a87c6f23e237f338087e66f739df111204362f453bcd` |
+| VPS x86-64 | `2af1007c22762bda16e083d2105a692dca6aa4195cc73600882c03821613bda7` | `d430ea7a4304ea5e1e445a57a217e92d44f44980671731f87f9c8897a8da0c00` |
+
+| Host | Monthly PDF | Annual PDF | Slowest liveness probe | Slowest work-list probe |
+| --- | --- | --- | ---: | ---: |
+| Pi 4 ARM64 | 7 pages, 3.68 s | 201 pages, 24.94 s | 1.17 s | 2.73 s |
+| VPS x86-64 | 7 pages, 0.45 s | 200 pages, 2.24 s | 0.13 s | 0.34 s |
+
+Times are median request to completed download. Every probe succeeded. The Pi reached 87.2 °C and throttled. Its Docker memory controller was unavailable, and the host guard saw at least 1,632 MiB available. The VPS applied a 2 GiB memory and 1.5 CPU limit and had at least 1,602 MiB host memory available. Both runs removed test resources and matched the original running container states and start times. The annual Pi appendix used one additional page. Both PDFs passed exact total and page-number checks.
+
+- [Pi timings](evidence/release-rehearsal/pi4-pdf.json) and [resource samples](evidence/release-rehearsal/pi4-host-samples.tsv)
+- [VPS timings](evidence/release-rehearsal/vps-pdf.json) and [resource samples](evidence/release-rehearsal/vps-host-samples.tsv)
+- [Single-project cover](evidence/release-rehearsal/single-project-cover.png) and [empty cover](evidence/release-rehearsal/empty-cover.png)
+
+The backup and migration sources are byte-for-byte unchanged from the [native encrypted restore](backup-restore-verification.md). The final release checks also exercised real encryption and recovery using the same age version in a local container. The production external backup mount and key handling remain separate operator checks.
+
+## Database compatibility
+
+The [three-provider compatibility fixture](hand-offs/issue-2-implementation.md) passed its type checks and round trips on SQLite 3.53.2, PostgreSQL 18.4 and MariaDB 11.8.8 on the integrated revision. PostgreSQL and MariaDB transfers, A23 and A24, remain optional and outside the initial SQLite release gate.
+
+## Production decisions
+
+- **Access.** Confirm the HTTPS hostname, allowed networks and remote clients, reverse proxy, DNS, and certificate issuance and renewal. The planned first application host is the Pi 4.
+- **Recovery.** Confirm the off-host backup destination, access to it, recovery key custodian and separate recovery copy, and alert recipient. Then verify scheduled publication, a restore from the actual destination and alert delivery. Keep rehearsal data and production data isolated.
